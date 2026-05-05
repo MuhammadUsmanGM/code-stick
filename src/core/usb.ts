@@ -220,27 +220,57 @@ export async function checkDiskSpace(drivePath: string, requiredGB: number): Pro
  * mid-pull ENOSPC-shaped failure.
  */
 export function detectFilesystem(drivePath: string): string | null {
-  try {
-    if (process.platform === "win32") {
-      const driveLetter = drivePath.match(/^([a-z]):/i)?.[1];
-      if (!driveLetter) return null;
-      const out = execFileSync(
-        "powershell",
-        [
-          "-NoProfile", "-NonInteractive", "-Command",
-          `(Get-Volume -DriveLetter '${driveLetter}' -ErrorAction Stop).FileSystemType`,
-        ],
-        { encoding: "utf8", windowsHide: true, timeout: 5000 }
-      );
-      return out.trim().toLowerCase() || null;
+  const debug = process.env.CODE_STICK_DEBUG === "1";
+  const tryRun = (label: string, cmd: string, args: string[]): string | null => {
+    try {
+      const out = execFileSync(cmd, args, { encoding: "utf8", windowsHide: true, timeout: 5000 });
+      const trimmed = out.trim();
+      if (debug) console.error(`[fs-detect] ${label}: ${JSON.stringify(trimmed)}`);
+      return trimmed || null;
+    } catch (err) {
+      if (debug) console.error(`[fs-detect] ${label} failed: ${(err as Error).message}`);
+      return null;
     }
-    if (process.platform === "darwin") {
-      const out = execFileSync("diskutil", ["info", drivePath], { encoding: "utf8", timeout: 5000 });
-      const m = out.match(/File System Personality:\s+([^\n]+)/i);
-      return m ? m[1].trim().toLowerCase() : null;
+  };
+
+  if (process.platform === "win32") {
+    const letter = drivePath.match(/^([a-z]):/i)?.[1]?.toUpperCase();
+    if (!letter) {
+      if (debug) console.error(`[fs-detect] could not parse drive letter from ${JSON.stringify(drivePath)}`);
+      return null;
     }
-    // linux
-    const out = execFileSync("findmnt", ["-no", "FSTYPE", "--target", drivePath], { encoding: "utf8", timeout: 5000 });
-    return out.trim().toLowerCase() || null;
-  } catch { return null; }
+    // 1) PowerShell Get-Volume — preferred on Win10+
+    const ps = tryRun("Get-Volume", "powershell", [
+      "-NoProfile", "-NonInteractive", "-Command",
+      `(Get-Volume -DriveLetter '${letter}' -ErrorAction Stop).FileSystemType`,
+    ]);
+    if (ps) return ps.toLowerCase();
+    // 2) fsutil — bundled with Windows since XP, doesn't need PowerShell.
+    //    Prints e.g. "File System Name : exFAT".
+    const fsutil = tryRun("fsutil", "fsutil", ["fsinfo", "volumeinfo", `${letter}:\\`]);
+    if (fsutil) {
+      const m = fsutil.match(/File System Name\s*:\s*([^\r\n]+)/i);
+      if (m) return m[1].trim().toLowerCase();
+    }
+    // 3) wmic — last resort, deprecated in Win11 but still on most installs.
+    const wmic = tryRun("wmic", "wmic", [
+      "logicaldisk", "where", `DeviceID='${letter}:'`, "get", "FileSystem", "/value",
+    ]);
+    if (wmic) {
+      const m = wmic.match(/FileSystem=([^\r\n]+)/i);
+      if (m) return m[1].trim().toLowerCase();
+    }
+    return null;
+  }
+
+  if (process.platform === "darwin") {
+    const out = tryRun("diskutil", "diskutil", ["info", drivePath]);
+    if (!out) return null;
+    const m = out.match(/File System Personality:\s+([^\n]+)/i);
+    return m ? m[1].trim().toLowerCase() : null;
+  }
+
+  // linux
+  const out = tryRun("findmnt", "findmnt", ["-no", "FSTYPE", "--target", drivePath]);
+  return out ? out.toLowerCase() : null;
 }
