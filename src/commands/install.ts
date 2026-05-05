@@ -230,6 +230,7 @@ function writeOpencodeConfig(drivePath: string, model: CodingModel): void {
 
   const config = {
     $schema: "https://opencode.ai/config.json",
+    autoupdate: false,
     provider: {
       ollama: {
         npm: "@ai-sdk/openai-compatible",
