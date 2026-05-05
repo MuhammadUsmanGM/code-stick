@@ -17,6 +17,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "hashes": "node scripts/compute-hashes.mjs",
+    "postinstall": "node scripts/postinstall.mjs",
     "verify-publish": "node scripts/verify-publish.mjs",
     "prepublishOnly": "npm run build && npm run verify-publish"
   },
