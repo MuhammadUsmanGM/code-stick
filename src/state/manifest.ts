@@ -5,15 +5,33 @@ import path from "node:path";
 import { usbPaths } from "../utils/paths.js";
 import type { Target } from "../catalog/targets.js";
 
+export interface ManifestModel {
+  id: string;
+  tag: string;
+  /** ISO timestamp the model was first pulled to this stick. */
+  addedAt: string;
+}
+
+/** v2 schema — multi-model. v1 (single `model`) is migrated transparently. */
 export interface Manifest {
-  version: string;
+  version: "2";
   installedAt: string;
   updatedAt?: string;
-  model: {
-    id: string;
-    tag: string;
-  };
+  /** All coding models currently stored on this stick. */
+  models: ManifestModel[];
+  /** Tag of the model launchers + opencode default to. */
+  defaultModelId: string;
   /** Targets actually present on this USB. */
+  targets: Target[];
+  ollamaVersion: string;
+  opencodeVersion: string;
+}
+
+interface ManifestV1 {
+  version: "1";
+  installedAt: string;
+  updatedAt?: string;
+  model: { id: string; tag: string };
   targets: Target[];
   ollamaVersion: string;
   opencodeVersion: string;
@@ -21,23 +39,40 @@ export interface Manifest {
 
 export function loadManifest(drivePath: string): Manifest | null {
   const p = usbPaths(drivePath);
+  let parsed: unknown;
   try {
     const raw = fs.readFileSync(p.manifest, "utf-8");
-    const parsed = JSON.parse(raw);
-    if (!parsed.version || !parsed.model?.id || !parsed.model?.tag || !Array.isArray(parsed.targets)) {
-      return null;
-    }
-    if (parsed.updatedAt !== undefined) {
-      const ok = typeof parsed.updatedAt === "string" && !Number.isNaN(Date.parse(parsed.updatedAt));
-      if (!ok) delete parsed.updatedAt;
-    }
-    if (typeof parsed.installedAt !== "string" || Number.isNaN(Date.parse(parsed.installedAt))) {
-      parsed.installedAt = "";
-    }
-    return parsed as Manifest;
-  } catch {
-    return null;
+    parsed = JSON.parse(raw);
+  } catch { return null; }
+  if (!parsed || typeof parsed !== "object") return null;
+
+  const obj = parsed as Record<string, unknown>;
+  // v1 → v2 migration. Stick stays on disk in v1 shape until next saveManifest.
+  if (obj.version === "1") {
+    const v1 = obj as unknown as ManifestV1;
+    if (!v1.model?.id || !v1.model?.tag || !Array.isArray(v1.targets)) return null;
+    return {
+      version: "2",
+      installedAt: v1.installedAt || "",
+      updatedAt: v1.updatedAt,
+      models: [{ id: v1.model.id, tag: v1.model.tag, addedAt: v1.installedAt || new Date().toISOString() }],
+      defaultModelId: v1.model.id,
+      targets: v1.targets,
+      ollamaVersion: v1.ollamaVersion,
+      opencodeVersion: v1.opencodeVersion,
+    };
   }
+
+  if (obj.version !== "2") return null;
+  const m = obj as unknown as Manifest;
+  if (!Array.isArray(m.models) || m.models.length === 0 || !m.defaultModelId) return null;
+  if (!Array.isArray(m.targets)) return null;
+  if (typeof m.installedAt !== "string" || Number.isNaN(Date.parse(m.installedAt))) m.installedAt = "";
+  if (m.updatedAt !== undefined) {
+    const ok = typeof m.updatedAt === "string" && !Number.isNaN(Date.parse(m.updatedAt));
+    if (!ok) delete m.updatedAt;
+  }
+  return m;
 }
 
 const LOCK_TIMEOUT_MS = 30_000;
@@ -107,4 +142,13 @@ export function saveManifest(drivePath: string, manifest: Manifest): void {
   } finally {
     try { fs.unlinkSync(lockPath); } catch { /* lock may have been stolen */ }
   }
+}
+
+export function defaultModel(manifest: Manifest): ManifestModel {
+  const m = manifest.models.find((x) => x.id === manifest.defaultModelId);
+  if (!m) {
+    // Manifest claimed a default that doesn't exist — fall back to first.
+    return manifest.models[0];
+  }
+  return m;
 }

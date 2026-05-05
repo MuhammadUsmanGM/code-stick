@@ -16,14 +16,20 @@ fi
 OLLAMA_BIN="$USB_ROOT/engine/$TARGET/ollama"
 OPENCODE_BIN="$USB_ROOT/opencode/$TARGET/opencode"
 
-if [ ! -x "$OLLAMA_BIN" ]; then
-  echo "[code-stick] Missing or non-executable: $OLLAMA_BIN"
+# macOS quarantines anything that arrived via "external media" or download.
+# Strip the xattr from the binaries we're about to run — silent if no quarantine.
+xattr -dr com.apple.quarantine "$USB_ROOT/engine/$TARGET" 2>/dev/null || true
+xattr -dr com.apple.quarantine "$USB_ROOT/opencode/$TARGET" 2>/dev/null || true
+chmod +x "$OLLAMA_BIN" "$OPENCODE_BIN" 2>/dev/null || true
+
+if [ ! -f "$OLLAMA_BIN" ]; then
+  echo "[code-stick] Missing: $OLLAMA_BIN"
   echo "[code-stick] Re-run: npx code-stick install --target \"$USB_ROOT\""
   read -n 1 -s -r -p "Press any key to close..."
   exit 1
 fi
-if [ ! -x "$OPENCODE_BIN" ]; then
-  echo "[code-stick] Missing or non-executable: $OPENCODE_BIN"
+if [ ! -f "$OPENCODE_BIN" ]; then
+  echo "[code-stick] Missing: $OPENCODE_BIN"
   echo "[code-stick] Re-run: npx code-stick install --target \"$USB_ROOT\""
   read -n 1 -s -r -p "Press any key to close..."
   exit 1

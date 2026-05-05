@@ -6,6 +6,8 @@ import { installCommand } from "./commands/install.js";
 import { startCommand } from "./commands/start.js";
 import { statusCommand } from "./commands/status.js";
 import { updateCommand } from "./commands/update.js";
+import { addModelCommand } from "./commands/add-model.js";
+import { removeModelCommand } from "./commands/remove-model.js";
 
 declare const PKG_VERSION: string | undefined;
 const version = typeof PKG_VERSION !== "undefined" ? PKG_VERSION : "dev";
@@ -44,6 +46,20 @@ async function main() {
     .description("Refresh launcher scripts and manifest timestamp")
     .option("-t, --target <path>", "Update this installation directory")
     .action(async (opts) => { await updateCommand(opts); });
+
+  program
+    .command("add-model [id]")
+    .description("Pull an additional coding model onto an existing stick")
+    .option("-t, --target <path>", "Add to this installation directory")
+    .option("--set-default", "Make the new model the default for opencode + launchers")
+    .action(async (id, opts) => { await addModelCommand(id, opts); });
+
+  program
+    .command("remove-model [id]")
+    .description("Remove a coding model from a stick")
+    .option("-t, --target <path>", "Remove from this installation directory")
+    .option("--force", "Allow removing the only or default model")
+    .action(async (id, opts) => { await removeModelCommand(id, opts); });
 
   await program.parseAsync(process.argv);
 }

@@ -1,8 +1,9 @@
 // Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a
 import { log } from "../utils/logger.js";
 import { pickDrive, assertDriveReady } from "../core/usb.js";
-import { loadManifest, saveManifest } from "../state/manifest.js";
+import { loadManifest, saveManifest, defaultModel } from "../state/manifest.js";
 import { renderLaunchers } from "../core/launcher-gen.js";
+import { writeOpencodeConfig } from "../core/opencode-config.js";
 
 interface UpdateOptions { target?: string; }
 
@@ -24,9 +25,11 @@ export async function updateCommand(opts: UpdateOptions): Promise<void> {
     process.exit(1);
   }
 
-  renderLaunchers(drivePath, { modelTag: manifest.model.tag });
+  const def = defaultModel(manifest);
+  writeOpencodeConfig(drivePath, manifest);
+  renderLaunchers(drivePath, { modelTag: def.tag });
   manifest.updatedAt = new Date().toISOString();
   saveManifest(drivePath, manifest);
 
-  log.success("Refreshed launchers + manifest");
+  log.success("Refreshed launchers, opencode config, and manifest");
 }

@@ -7,7 +7,7 @@ import { usbPaths } from "../utils/paths.js";
 import { ALL_TARGETS } from "../catalog/targets.js";
 import { ollamaBinaryRel } from "../catalog/ollama.js";
 import { opencodeBinaryRel } from "../catalog/opencode.js";
-import { loadManifest } from "../state/manifest.js";
+import { loadManifest, defaultModel } from "../state/manifest.js";
 import { inspectOllamaData } from "../core/health.js";
 
 interface StatusOptions { target?: string; }
@@ -27,9 +27,16 @@ export async function statusCommand(opts: StatusOptions): Promise<void> {
 
   log.info(`Installed:    ${manifest.installedAt}`);
   if (manifest.updatedAt) log.info(`Last updated: ${manifest.updatedAt}`);
-  log.info(`Model:        ${manifest.model.tag} (${manifest.model.id})`);
   log.info(`Ollama:       ${manifest.ollamaVersion}`);
   log.info(`opencode:     ${manifest.opencodeVersion}`);
+
+  log.blank();
+  log.info(`Models (${manifest.models.length}):`);
+  const def = defaultModel(manifest);
+  for (const m of manifest.models) {
+    const star = m.id === def.id ? "★" : " ";
+    log.dim(`  ${star} ${m.tag.padEnd(28)} (${m.id})`);
+  }
 
   const p = usbPaths(drivePath);
   log.blank();

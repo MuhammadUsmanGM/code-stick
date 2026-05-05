@@ -7,7 +7,7 @@ import { usbPaths } from "../utils/paths.js";
 import { hostTarget } from "../utils/platform.js";
 import { ollamaBinaryRel } from "../catalog/ollama.js";
 import { opencodeBinaryRel } from "../catalog/opencode.js";
-import { loadManifest } from "../state/manifest.js";
+import { loadManifest, defaultModel } from "../state/manifest.js";
 import { inspectOllamaData } from "../core/health.js";
 import {
   startOllama, waitForOllama, runOpencodeForeground,
@@ -55,7 +55,9 @@ export async function startCommand(opts: StartOptions): Promise<void> {
 
   await checkPortFree();
 
-  log.info(`Model: ${manifest.model.tag}`);
+  const def = defaultModel(manifest);
+  const otherCount = manifest.models.length - 1;
+  log.info(`Model: ${def.tag}${otherCount > 0 ? ` (+${otherCount} other on stick)` : ""}`);
   log.dim("Starting Ollama from USB...");
   startOllama(drivePath);
   const ready = await waitForOllama(45_000);

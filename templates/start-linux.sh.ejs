@@ -18,14 +18,25 @@ esac
 OLLAMA_BIN="$USB_ROOT/engine/$TARGET/bin/ollama"
 OPENCODE_BIN="$USB_ROOT/opencode/$TARGET/opencode"
 
-if [ ! -x "$OLLAMA_BIN" ]; then
-  echo "[code-stick] Missing or non-executable: $OLLAMA_BIN"
+# FAT32/exFAT can't store the +x bit, so binaries lose executability when the
+# stick is mounted on Linux. Best-effort chmod (no-op on FAT — we'll fall back
+# to invoking via the dynamic linker if needed).
+chmod +x "$OLLAMA_BIN" "$OPENCODE_BIN" 2>/dev/null || true
+
+if [ ! -f "$OLLAMA_BIN" ]; then
+  echo "[code-stick] Missing: $OLLAMA_BIN"
   echo "[code-stick] Re-run: npx code-stick install --target \"$USB_ROOT\""
   exit 1
 fi
-if [ ! -x "$OPENCODE_BIN" ]; then
-  echo "[code-stick] Missing or non-executable: $OPENCODE_BIN"
+if [ ! -f "$OPENCODE_BIN" ]; then
+  echo "[code-stick] Missing: $OPENCODE_BIN"
   echo "[code-stick] Re-run: npx code-stick install --target \"$USB_ROOT\""
+  exit 1
+fi
+if [ ! -x "$OLLAMA_BIN" ] || [ ! -x "$OPENCODE_BIN" ]; then
+  echo "[code-stick] Binaries are not executable — likely a FAT/exFAT USB."
+  echo "[code-stick] Mount with exec perms, or run: bash \"$0\""
+  echo "[code-stick] (or copy <USB>/engine and <USB>/opencode to ~/.local for one-time use)"
   exit 1
 fi
 
