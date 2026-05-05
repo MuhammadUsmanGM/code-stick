@@ -1,7 +1,7 @@
 @echo off
 REM Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a
 REM code-stick launcher — Windows x64. Generated at install time; do not edit.
-setlocal ENABLEDELAYEDEXPANSION
+setlocal
 
 REM Resolve USB root (this script lives at <USB>\start-windows.bat).
 set "USB_ROOT=%~dp0"
@@ -9,11 +9,6 @@ if "%USB_ROOT:~-1%"=="\" set "USB_ROOT=%USB_ROOT:~0,-1%"
 
 set "OLLAMA_BIN=%USB_ROOT%\engine\windows-x64\ollama.exe"
 set "OPENCODE_BIN=%USB_ROOT%\opencode\windows-x64\opencode.exe"
-set "OLLAMA_MODELS=%USB_ROOT%\data"
-set "OLLAMA_HOST=127.0.0.1:11434"
-REM Redirect opencode config to the USB. opencode reads %APPDATA%\opencode on Windows.
-set "APPDATA=%USB_ROOT%\config"
-set "XDG_CONFIG_HOME=%USB_ROOT%\config"
 
 if not exist "%OLLAMA_BIN%" (
   echo [code-stick] Missing engine binary: %OLLAMA_BIN%
@@ -28,35 +23,41 @@ if not exist "%OPENCODE_BIN%" (
   exit /b 1
 )
 
-echo [code-stick] Starting Ollama from USB...
-REM Capture the PID of the ollama process we spawn so we kill only ours on
-REM exit — never touch a pre-existing ollama.exe the user might be running.
-for /f "usebackq tokens=*" %%P in (`powershell -NoProfile -Command "$p = Start-Process -FilePath '%OLLAMA_BIN%' -ArgumentList 'serve' -WindowStyle Hidden -PassThru -RedirectStandardOutput '%TEMP%\code-stick-ollama.log' -RedirectStandardError '%TEMP%\code-stick-ollama.err'; $p.Id"`) do set "OLLAMA_PID=%%P"
+REM Delegate the entire spawn/wait/cleanup cycle to PowerShell so a
+REM try/finally guarantees the Ollama child is killed even when the user
+REM presses Ctrl+C (which would otherwise short-circuit a plain BAT cleanup).
+REM ModelTag is passed via env so opencode can echo it before launch.
+set "CODE_STICK_USB_ROOT=%USB_ROOT%"
+set "CODE_STICK_MODEL_TAG=<%= modelTag %>"
 
-REM Wait for Ollama port (up to ~30s).
-set /a TRIES=0
-:waitloop
-set /a TRIES+=1
-powershell -NoProfile -Command "try { (New-Object Net.Sockets.TcpClient).Connect('127.0.0.1',11434); exit 0 } catch { exit 1 }" >nul 2>&1
-if %ERRORLEVEL%==0 goto ready
-if %TRIES% GEQ 60 goto timeout
-timeout /t 1 /nobreak >nul
-goto waitloop
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ErrorActionPreference='Stop';" ^
+  "$root=$env:CODE_STICK_USB_ROOT;" ^
+  "$ollamaBin=Join-Path $root 'engine\windows-x64\ollama.exe';" ^
+  "$opencodeBin=Join-Path $root 'opencode\windows-x64\opencode.exe';" ^
+  "$env:OLLAMA_MODELS=Join-Path $root 'data';" ^
+  "$env:OLLAMA_HOST='127.0.0.1:11434';" ^
+  "$env:APPDATA=Join-Path $root 'config';" ^
+  "$env:XDG_CONFIG_HOME=Join-Path $root 'config';" ^
+  "$logOut=Join-Path $env:TEMP 'code-stick-ollama.log';" ^
+  "$logErr=Join-Path $env:TEMP 'code-stick-ollama.err';" ^
+  "Write-Host '[code-stick] Starting Ollama from USB...';" ^
+  "$ollama=Start-Process -FilePath $ollamaBin -ArgumentList 'serve' -WindowStyle Hidden -PassThru -RedirectStandardOutput $logOut -RedirectStandardError $logErr;" ^
+  "try {" ^
+  "  $tries=0;" ^
+  "  while ($tries -lt 60) {" ^
+  "    try { (New-Object Net.Sockets.TcpClient).Connect('127.0.0.1',11434); break } catch { Start-Sleep -Seconds 1; $tries++ }" ^
+  "  }" ^
+  "  if ($tries -ge 60) { Write-Host \"[code-stick] Ollama did not start in time. Check $logOut\"; exit 1 }" ^
+  "  Write-Host \"[code-stick] Launching opencode (model: $env:CODE_STICK_MODEL_TAG)...\"; Write-Host '';" ^
+  "  $opencode=Start-Process -FilePath $opencodeBin -NoNewWindow -PassThru -Wait;" ^
+  "  exit $opencode.ExitCode" ^
+  "} finally {" ^
+  "  if ($ollama -and -not $ollama.HasExited) {" ^
+  "    Write-Host \"\"; Write-Host \"[code-stick] Stopping Ollama PID $($ollama.Id)...\";" ^
+  "    try { Stop-Process -Id $ollama.Id -Force -ErrorAction SilentlyContinue } catch {}" ^
+  "  }" ^
+  "}"
 
-:timeout
-echo [code-stick] Ollama did not start in time. Check %TEMP%\code-stick-ollama.log
-goto cleanup
-
-:ready
-echo [code-stick] Launching opencode (model: <%= modelTag %>)...
-echo.
-"%OPENCODE_BIN%"
-
-:cleanup
-echo.
-if defined OLLAMA_PID (
-  echo [code-stick] Stopping Ollama PID %OLLAMA_PID%...
-  taskkill /PID %OLLAMA_PID% /T /F >nul 2>&1
-)
-endlocal
-exit /b 0
+set "EXITCODE=%ERRORLEVEL%"
+endlocal & exit /b %EXITCODE%

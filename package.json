@@ -17,7 +17,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "hashes": "node scripts/compute-hashes.mjs",
-    "prepublishOnly": "npm run build && node -e \"require('fs').accessSync('dist/cli.js'); require('fs').accessSync('templates/start-windows.bat.ejs'); require('fs').accessSync('templates/start-mac.command.ejs'); require('fs').accessSync('templates/start-linux.sh.ejs');\""
+    "verify-publish": "node scripts/verify-publish.mjs",
+    "prepublishOnly": "npm run build && npm run verify-publish"
   },
   "engines": {
     "node": ">=20"

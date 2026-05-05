@@ -148,9 +148,10 @@ async function fetchAndExtractOllama(target: Target, destDir: string, tempDir: s
     expectedHash: art.sha256,
     label: `ollama ${target}`,
   });
-  if (art.type === "zip") await extractZipFile(archivePath, destDir);
-  else await extractTarFile(archivePath, destDir);
-  ensureExecutable(path.join(destDir, ollamaBinaryRel(target)));
+  const expectBinary = ollamaBinaryRel(target);
+  if (art.type === "zip") await extractZipFile(archivePath, destDir, { expectBinary });
+  else await extractTarFile(archivePath, destDir, { expectBinary });
+  ensureExecutable(path.join(destDir, expectBinary));
 }
 
 async function fetchAndExtractOpencode(target: Target, destDir: string, tempDir: string): Promise<void> {
@@ -164,9 +165,10 @@ async function fetchAndExtractOpencode(target: Target, destDir: string, tempDir:
     expectedHash: art.sha256,
     label: `opencode ${target}`,
   });
-  if (art.type === "zip") await extractZipFile(archivePath, destDir);
-  else await extractTarFile(archivePath, destDir);
-  ensureExecutable(path.join(destDir, opencodeBinaryRel(target)));
+  const expectBinary = opencodeBinaryRel(target);
+  if (art.type === "zip") await extractZipFile(archivePath, destDir, { expectBinary });
+  else await extractTarFile(archivePath, destDir, { expectBinary });
+  ensureExecutable(path.join(destDir, expectBinary));
 }
 
 function ensureExecutable(binPath: string): void {

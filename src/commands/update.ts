@@ -1,7 +1,7 @@
 // Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a
 import { log } from "../utils/logger.js";
 import { pickDrive, assertDriveReady } from "../core/usb.js";
-import { loadManifest, saveManifest, defaultModel } from "../state/manifest.js";
+import { withManifestLock, defaultModel } from "../state/manifest.js";
 import { renderLaunchers } from "../core/launcher-gen.js";
 import { writeOpencodeConfig } from "../core/opencode-config.js";
 
@@ -18,18 +18,18 @@ export async function updateCommand(opts: UpdateOptions): Promise<void> {
   const drivePath = await pickDrive(opts.target);
   assertDriveReady(drivePath);
 
-  const manifest = loadManifest(drivePath);
-  if (!manifest) {
-    log.error("No installation found at this drive.");
-    log.info(`Run: code-stick install --target "${drivePath}"`);
-    process.exit(1);
-  }
-
-  const def = defaultModel(manifest);
-  writeOpencodeConfig(drivePath, manifest);
-  renderLaunchers(drivePath, { modelTag: def.tag });
-  manifest.updatedAt = new Date().toISOString();
-  saveManifest(drivePath, manifest);
+  await withManifestLock(drivePath, async (manifest) => {
+    if (!manifest) {
+      log.error("No installation found at this drive.");
+      log.info(`Run: code-stick install --target "${drivePath}"`);
+      process.exit(1);
+    }
+    const def = defaultModel(manifest);
+    writeOpencodeConfig(drivePath, manifest);
+    renderLaunchers(drivePath, { modelTag: def.tag });
+    manifest.updatedAt = new Date().toISOString();
+    return { manifest, result: undefined };
+  });
 
   log.success("Refreshed launchers, opencode config, and manifest");
 }

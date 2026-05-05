@@ -90,6 +90,10 @@ bash start-mac.command
 
 For long-term use, format the stick as **NTFS** (Windows + Linux) or **APFS/HFS+** (macOS-only) — or **exFAT** if you accept the `bash` workaround for cross-OS use.
 
+### A model pull was interrupted
+
+Re-run `code-stick add-model <id>` (or `install --model <id>`). Ollama's pull is resumable, and code-stick prunes any `sha256-*-partial` blobs left from the previous attempt before retrying.
+
 ### Ollama port 11434 already in use
 
 Stop your host's Ollama process first. The launchers refuse to start a second instance on the same port.

@@ -76,16 +76,28 @@ export function loadManifest(drivePath: string): Manifest | null {
 }
 
 const LOCK_TIMEOUT_MS = 30_000;
-const LOCK_STALE_MS = 10 * 60 * 1000;
+// Long-running operations (model pull on slow USB) can easily exceed 10 min.
+// The lock holder refreshes the timestamp periodically so other processes
+// don't reclaim it; this stale window is the absolute fallback if the holder
+// crashes without releasing.
+const LOCK_STALE_MS = 60 * 60 * 1000;
+const LOCK_HEARTBEAT_MS = 5 * 60 * 1000;
+
+function writeLockPayload(lockPath: string): void {
+  const payload = JSON.stringify({ pid: process.pid, host: os.hostname(), at: Date.now() });
+  try { fs.writeFileSync(lockPath, payload); } catch { /* best-effort heartbeat */ }
+}
 
 function acquireManifestLock(lockPath: string): void {
   const deadline = Date.now() + LOCK_TIMEOUT_MS;
-  const payload = JSON.stringify({ pid: process.pid, host: os.hostname(), at: Date.now() });
 
   while (true) {
     try {
       const fd = fs.openSync(lockPath, "wx");
-      try { fs.writeSync(fd, payload); } finally { fs.closeSync(fd); }
+      try {
+        const payload = JSON.stringify({ pid: process.pid, host: os.hostname(), at: Date.now() });
+        fs.writeSync(fd, payload);
+      } finally { fs.closeSync(fd); }
       return;
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
@@ -123,23 +135,51 @@ function pidAlive(pid: number): boolean {
   catch (err) { return (err as NodeJS.ErrnoException).code === "EPERM"; }
 }
 
-export function saveManifest(drivePath: string, manifest: Manifest): void {
+function writeManifestUnlocked(drivePath: string, manifest: Manifest): void {
   const p = usbPaths(drivePath);
   const dir = path.dirname(p.manifest);
   const tmp = path.join(dir, `.${path.basename(p.manifest)}.${process.pid}.tmp`);
-  const lockPath = `${p.manifest}.lock`;
   const data = JSON.stringify(manifest, null, 2);
 
-  acquireManifestLock(lockPath);
+  const fd = fs.openSync(tmp, "w");
   try {
-    const fd = fs.openSync(tmp, "w");
-    try {
-      fs.writeSync(fd, data);
-      try { fs.fsyncSync(fd); } catch { /* fsync may not be supported on FAT/exFAT */ }
-    } finally { fs.closeSync(fd); }
-    try { fs.renameSync(tmp, p.manifest); }
-    catch (err) { try { fs.unlinkSync(tmp); } catch { /* ignore */ } throw err; }
+    fs.writeSync(fd, data);
+    try { fs.fsyncSync(fd); } catch { /* fsync may not be supported on FAT/exFAT */ }
+  } finally { fs.closeSync(fd); }
+  try { fs.renameSync(tmp, p.manifest); }
+  catch (err) { try { fs.unlinkSync(tmp); } catch { /* ignore */ } throw err; }
+}
+
+export function saveManifest(drivePath: string, manifest: Manifest): void {
+  const p = usbPaths(drivePath);
+  const lockPath = `${p.manifest}.lock`;
+  acquireManifestLock(lockPath);
+  try { writeManifestUnlocked(drivePath, manifest); }
+  finally { try { fs.unlinkSync(lockPath); } catch { /* lock may have been stolen */ } }
+}
+
+/**
+ * Hold the manifest lock across the entire load → mutate → save cycle so
+ * concurrent invocations cannot lose writes. `fn` receives the freshly-loaded
+ * manifest; if it returns a Manifest the file is rewritten, if it returns null
+ * the lock is released without writing.
+ */
+export async function withManifestLock<T>(
+  drivePath: string,
+  fn: (manifest: Manifest | null) => Promise<{ manifest: Manifest | null; result: T }>,
+): Promise<T> {
+  const p = usbPaths(drivePath);
+  const lockPath = `${p.manifest}.lock`;
+  acquireManifestLock(lockPath);
+  const heartbeat = setInterval(() => writeLockPayload(lockPath), LOCK_HEARTBEAT_MS);
+  if (typeof heartbeat.unref === "function") heartbeat.unref();
+  try {
+    const current = loadManifest(drivePath);
+    const { manifest, result } = await fn(current);
+    if (manifest) writeManifestUnlocked(drivePath, manifest);
+    return result;
   } finally {
+    clearInterval(heartbeat);
     try { fs.unlinkSync(lockPath); } catch { /* lock may have been stolen */ }
   }
 }
