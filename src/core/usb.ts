@@ -29,8 +29,22 @@ let drivelistWarned = false;
 async function loadDrivelist(): Promise<DrivelistApi | null> {
   if (drivelistCache !== undefined) return drivelistCache;
   try {
-    const mod = await import("drivelist");
-    const api = (mod as { default?: DrivelistApi }).default ?? (mod as unknown as DrivelistApi);
+    const mod: unknown = await import("drivelist");
+    // CJS-via-ESM can yield: the module itself, { default: module }, or
+    // { default: { list }, list }. Find whichever shape exposes `.list`.
+    const candidates: unknown[] = [
+      (mod as { default?: unknown })?.default,
+      mod,
+      (mod as { default?: { default?: unknown } })?.default?.default,
+    ];
+    let api: DrivelistApi | null = null;
+    for (const c of candidates) {
+      if (c && typeof (c as DrivelistApi).list === "function") {
+        api = c as DrivelistApi;
+        break;
+      }
+    }
+    if (!api) throw new Error("drivelist module loaded but `.list` is not a function");
     drivelistCache = api;
     return api;
   } catch (err) {
