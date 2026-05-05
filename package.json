@@ -55,7 +55,6 @@
     "chalk": "^5.3.0",
     "cli-progress": "^3.12.0",
     "commander": "^12.1.0",
-    "drivelist": "^12.0.2",
     "ejs": "^3.1.10",
     "extract-zip": "^2.0.1",
     "got": "^14.4.1",
@@ -63,6 +62,9 @@
     "inquirer": "^9.2.23",
     "tar": "^7.4.0",
     "tree-kill": "^1.2.2"
+  },
+  "optionalDependencies": {
+    "drivelist": "^12.0.2"
   },
   "devDependencies": {
     "@types/cli-progress": "^3.11.6",

@@ -24,6 +24,7 @@ interface InstallOptions {
   target?: string;
   model?: string;
   yes?: boolean;
+  noCleanup?: boolean;
 }
 
 const OLLAMA_VERSION = "v0.21.2";
@@ -90,9 +91,13 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   writeOpencodeConfig(drivePath, manifest);
   renderLaunchers(drivePath, { modelTag: model.tag });
 
-  log.step(5, totalSteps, "Writing manifest + cleanup...");
+  log.step(5, totalSteps, opts.noCleanup ? "Writing manifest (cleanup skipped)..." : "Writing manifest + cleanup...");
   saveManifest(drivePath, manifest);
-  postInstallCleanup(drivePath, tempDir);
+  if (opts.noCleanup) {
+    log.dim("Skipping cleanup (--no-cleanup) — installer archives + .code-stick-tmp left in place");
+  } else {
+    postInstallCleanup(drivePath, tempDir);
+  }
 
   log.blank();
   log.success(`Installed code-stick on ${drivePath}`);

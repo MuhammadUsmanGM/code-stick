@@ -8,6 +8,7 @@ import { statusCommand } from "./commands/status.js";
 import { updateCommand } from "./commands/update.js";
 import { addModelCommand } from "./commands/add-model.js";
 import { removeModelCommand } from "./commands/remove-model.js";
+import { uninstallCommand } from "./commands/uninstall.js";
 
 declare const PKG_VERSION: string | undefined;
 const version = typeof PKG_VERSION !== "undefined" ? PKG_VERSION : "dev";
@@ -27,6 +28,7 @@ async function main() {
     .option("-t, --target <path>", "Install to this directory (skips USB picker)")
     .option("-m, --model <id>", "Pick a model non-interactively (qwen25-coder-7b, deepseek-coder-6_7b, codegemma-7b, phi3-mini)")
     .option("-y, --yes", "Skip confirmations where possible")
+    .option("--no-cleanup", "Keep installer archives + temp dirs after install (debugging)")
     .action(async (opts) => { await installCommand(opts); });
 
   program
@@ -60,6 +62,13 @@ async function main() {
     .option("-t, --target <path>", "Remove from this installation directory")
     .option("--force", "Allow removing the only or default model")
     .action(async (id, opts) => { await removeModelCommand(id, opts); });
+
+  program
+    .command("uninstall")
+    .description("Remove code-stick (binaries, models, config, launchers) from a USB")
+    .option("-t, --target <path>", "Uninstall from this directory")
+    .option("-y, --yes", "Skip confirmation prompt")
+    .action(async (opts) => { await uninstallCommand(opts); });
 
   await program.parseAsync(process.argv);
 }
