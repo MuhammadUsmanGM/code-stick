@@ -25,6 +25,8 @@ const ASCII_ART_STICK = [
   "╚══════╝   ╚═╝   ╚═╝ ╚═════╝╚═╝  ╚═╝",
 ];
 
+const GITHUB_URL = "github.com/MuhammadUsmanGM";
+
 export const log = {
   info: (msg: string) => console.log(chalk.cyan(`  ${msg}`)),
   success: (msg: string) => console.log(chalk.green(`  ✓ ${msg}`)),
@@ -40,14 +42,7 @@ export const log = {
     console.log();
     for (const line of ASCII_ART_STICK) console.log(`  ${CORAL(line)}`);
     console.log();
-    const rule = CORAL("─".repeat(56));
-    console.log(`  ${rule}`);
-    console.log(`   Portable AI • Coding Edition • USB Ready`);
-    console.log(`  ${rule}`);
-    console.log(`  ${chalk.bold(msg)}  ${chalk.dim(`v${version}`)}`);
-    console.log(`  ${rule}`);
-    console.log(chalk.dim("  GitHub  https://github.com/MuhammadUsmanGM/code-stick"));
-    console.log(`  ${rule}`);
+    console.log(`  ${chalk.bold(msg)}  ${chalk.dim(`v${version}`)}  ${CORAL(GITHUB_URL)}`);
     console.log();
   },
 };
