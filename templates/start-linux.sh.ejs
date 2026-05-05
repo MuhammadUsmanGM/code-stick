@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a
+# code-stick launcher — Linux (x64 + arm64). Generated at install time.
+set -e
+
+USB_ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+ARCH="$(uname -m)"
+case "$ARCH" in
+  aarch64|arm64) TARGET="linux-arm64" ;;
+  x86_64|amd64)  TARGET="linux-x64" ;;
+  *)
+    echo "[code-stick] Unsupported Linux architecture: $ARCH"
+    exit 1
+    ;;
+esac
+
+OLLAMA_BIN="$USB_ROOT/engine/$TARGET/bin/ollama"
+OPENCODE_BIN="$USB_ROOT/opencode/$TARGET/opencode"
+
+if [ ! -x "$OLLAMA_BIN" ]; then
+  echo "[code-stick] Missing or non-executable: $OLLAMA_BIN"
+  echo "[code-stick] Re-run: npx code-stick install --target \"$USB_ROOT\""
+  exit 1
+fi
+if [ ! -x "$OPENCODE_BIN" ]; then
+  echo "[code-stick] Missing or non-executable: $OPENCODE_BIN"
+  echo "[code-stick] Re-run: npx code-stick install --target \"$USB_ROOT\""
+  exit 1
+fi
+
+export OLLAMA_MODELS="$USB_ROOT/data"
+export OLLAMA_HOST="127.0.0.1:11434"
+export XDG_CONFIG_HOME="$USB_ROOT/config"
+# Make bundled libs (if any) discoverable for the Ollama Linux build.
+export LD_LIBRARY_PATH="$USB_ROOT/engine/$TARGET/lib:${LD_LIBRARY_PATH:-}"
+
+cleanup() {
+  if [ -n "${OLLAMA_PID:-}" ]; then
+    echo
+    echo "[code-stick] Stopping Ollama (PID $OLLAMA_PID)..."
+    kill "$OLLAMA_PID" 2>/dev/null || true
+    wait "$OLLAMA_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+echo "[code-stick] Starting Ollama from USB ($TARGET)..."
+"$OLLAMA_BIN" serve > "/tmp/code-stick-ollama.log" 2>&1 &
+OLLAMA_PID=$!
+
+# Wait for Ollama port (up to ~30s).
+READY=
+for i in $(seq 1 60); do
+  if command -v curl >/dev/null 2>&1; then
+    if curl -fsS --max-time 1 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+      READY=1; break
+    fi
+  else
+    if (echo > /dev/tcp/127.0.0.1/11434) >/dev/null 2>&1; then
+      READY=1; break
+    fi
+  fi
+  sleep 0.5
+done
+
+if [ -z "$READY" ]; then
+  echo "[code-stick] Ollama did not start in time. Check /tmp/code-stick-ollama.log"
+  exit 1
+fi
+
+echo "[code-stick] Launching opencode (model: <%= modelTag %>)..."
+echo
+"$OPENCODE_BIN"

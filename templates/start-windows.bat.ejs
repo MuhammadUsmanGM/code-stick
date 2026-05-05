@@ -1,0 +1,59 @@
+@echo off
+REM Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a
+REM code-stick launcher — Windows x64. Generated at install time; do not edit.
+setlocal ENABLEDELAYEDEXPANSION
+
+REM Resolve USB root (this script lives at <USB>\start-windows.bat).
+set "USB_ROOT=%~dp0"
+if "%USB_ROOT:~-1%"=="\" set "USB_ROOT=%USB_ROOT:~0,-1%"
+
+set "OLLAMA_BIN=%USB_ROOT%\engine\windows-x64\ollama.exe"
+set "OPENCODE_BIN=%USB_ROOT%\opencode\windows-x64\opencode.exe"
+set "OLLAMA_MODELS=%USB_ROOT%\data"
+set "OLLAMA_HOST=127.0.0.1:11434"
+REM Redirect opencode config to the USB. opencode reads %APPDATA%\opencode on Windows.
+set "APPDATA=%USB_ROOT%\config"
+set "XDG_CONFIG_HOME=%USB_ROOT%\config"
+
+if not exist "%OLLAMA_BIN%" (
+  echo [code-stick] Missing engine binary: %OLLAMA_BIN%
+  echo [code-stick] Re-run: npx code-stick install --target "%USB_ROOT%"
+  pause
+  exit /b 1
+)
+if not exist "%OPENCODE_BIN%" (
+  echo [code-stick] Missing opencode binary: %OPENCODE_BIN%
+  echo [code-stick] Re-run: npx code-stick install --target "%USB_ROOT%"
+  pause
+  exit /b 1
+)
+
+echo [code-stick] Starting Ollama from USB...
+start "" /B "%OLLAMA_BIN%" serve > "%TEMP%\code-stick-ollama.log" 2>&1
+set "OLLAMA_STARTED=1"
+
+REM Wait for Ollama port (up to ~30s).
+set /a TRIES=0
+:waitloop
+set /a TRIES+=1
+powershell -NoProfile -Command "try { (New-Object Net.Sockets.TcpClient).Connect('127.0.0.1',11434); exit 0 } catch { exit 1 }" >nul 2>&1
+if %ERRORLEVEL%==0 goto ready
+if %TRIES% GEQ 60 goto timeout
+timeout /t 1 /nobreak >nul
+goto waitloop
+
+:timeout
+echo [code-stick] Ollama did not start in time. Check %TEMP%\code-stick-ollama.log
+goto cleanup
+
+:ready
+echo [code-stick] Launching opencode (model: <%= modelTag %>)...
+echo.
+"%OPENCODE_BIN%"
+
+:cleanup
+echo.
+echo [code-stick] Stopping Ollama...
+taskkill /IM ollama.exe /F >nul 2>&1
+endlocal
+exit /b 0

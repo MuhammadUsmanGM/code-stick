@@ -1,0 +1,75 @@
+{
+  "name": "code-stick",
+  "version": "0.1.0",
+  "description": "Portable AI coding agent on a USB drive — opencode + Ollama, install once, run on Windows / macOS / Linux",
+  "type": "module",
+  "bin": {
+    "code-stick": "./dist/cli.js"
+  },
+  "files": [
+    "dist/",
+    "templates/",
+    "scripts/"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build && node -e \"require('fs').accessSync('dist/cli.js'); require('fs').accessSync('templates/start-windows.bat.ejs'); require('fs').accessSync('templates/start-mac.command.ejs'); require('fs').accessSync('templates/start-linux.sh.ejs');\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "ai",
+    "coding-agent",
+    "opencode",
+    "portable",
+    "usb",
+    "offline",
+    "ollama",
+    "qwen",
+    "deepseek",
+    "codegemma",
+    "phi3"
+  ],
+  "author": {
+    "name": "Muhammad Usman",
+    "url": "https://github.com/MuhammadUsmanGM"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MuhammadUsmanGM/code-stick.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MuhammadUsmanGM/code-stick/issues"
+  },
+  "homepage": "https://github.com/MuhammadUsmanGM/code-stick#readme",
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "cli-progress": "^3.12.0",
+    "commander": "^12.1.0",
+    "drivelist": "^12.0.2",
+    "ejs": "^3.1.10",
+    "extract-zip": "^2.0.1",
+    "got": "^14.4.1",
+    "hasha": "^6.0.0",
+    "inquirer": "^9.2.23",
+    "tar": "^7.4.0",
+    "tree-kill": "^1.2.2"
+  },
+  "devDependencies": {
+    "@types/cli-progress": "^3.11.6",
+    "@types/ejs": "^3.1.5",
+    "@types/inquirer": "^9.0.7",
+    "@types/node": "^20.14.0",
+    "@types/tar": "^6.1.13",
+    "tsup": "^8.1.0",
+    "typescript": "^5.5.0"
+  }
+}
