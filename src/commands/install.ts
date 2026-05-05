@@ -10,7 +10,7 @@ import { OLLAMA, ollamaBinaryRel } from "../catalog/ollama.js";
 import { OPENCODE, opencodeBinaryRel } from "../catalog/opencode.js";
 import { MODELS, findModel, type CodingModel } from "../catalog/models.js";
 import { download } from "../core/downloader.js";
-import { extractZipFile, extractTarFile } from "../core/extract.js";
+import { extractZipFile, extractTarFile, extractTarZstFile } from "../core/extract.js";
 import { renderLaunchers } from "../core/launcher-gen.js";
 import { saveManifest, type Manifest } from "../state/manifest.js";
 import { preflightFilesystem, warnIfLosesExecBit } from "../core/preflight.js";
@@ -150,6 +150,7 @@ async function fetchAndExtractOllama(target: Target, destDir: string, tempDir: s
   });
   const expectBinary = ollamaBinaryRel(target);
   if (art.type === "zip") await extractZipFile(archivePath, destDir, { expectBinary });
+  else if (art.type === "tzst") await extractTarZstFile(archivePath, destDir, { expectBinary });
   else await extractTarFile(archivePath, destDir, { expectBinary });
   ensureExecutable(path.join(destDir, expectBinary));
 }

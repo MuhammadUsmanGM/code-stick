@@ -9,8 +9,8 @@ export interface OllamaArtifact {
   url: string;
   mirrors?: string[];
   filename: string;
-  /** Archive type. zip = Windows + macOS releases, tgz = Linux releases. */
-  type: "zip" | "tgz";
+  /** Archive type. zip = Windows + macOS releases, tzst = Linux (.tar.zst). */
+  type: "zip" | "tzst";
   sha256?: string;
 }
 
@@ -38,18 +38,16 @@ export const OLLAMA: Record<Target, OllamaArtifact> = {
     sha256: "52c8856bf6c46beef9664ebab22b327afd6224a418744afa594b70a11587ec15",
   },
   "linux-x64": {
-    url: `${BASE}/ollama-linux-amd64.tgz`,
-    filename: "ollama-linux-amd64.tgz",
-    type: "tgz",
-    // PENDING: populate with sha256 of the linux-amd64 tgz before publish.
-    sha256: "PENDING-linux-amd64",
+    url: `${BASE}/ollama-linux-amd64.tar.zst`,
+    filename: "ollama-linux-amd64.tar.zst",
+    type: "tzst",
+    sha256: "58ebee40083b53afc91e14fdc7bcdae4023f0c773c2358411f104f9bed2b739e",
   },
   "linux-arm64": {
-    url: `${BASE}/ollama-linux-arm64.tgz`,
-    filename: "ollama-linux-arm64.tgz",
-    type: "tgz",
-    // PENDING: populate with sha256 of the linux-arm64 tgz before publish.
-    sha256: "PENDING-linux-arm64",
+    url: `${BASE}/ollama-linux-arm64.tar.zst`,
+    filename: "ollama-linux-arm64.tar.zst",
+    type: "tzst",
+    sha256: "d97ab6f40e9f5123e9361bc279b36dd5413257bc54f58b2f58419b33ab7a1eb0",
   },
 };
 

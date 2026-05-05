@@ -3,6 +3,9 @@ import extractZip from "extract-zip";
 import * as tar from "tar";
 import fs from "node:fs";
 import path from "node:path";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { Decompress } from "fzstd";
 import { log } from "../utils/logger.js";
 
 export interface ExtractOptions {
@@ -34,6 +37,41 @@ export async function extractTarFile(tarPath: string, destDir: string, opts: Ext
   });
   log.dim(`Extracted ${path.basename(tarPath)}`);
   assertExtractedBinary(path.resolve(destDir), opts.expectBinary, tarPath);
+}
+
+export async function extractTarZstFile(archivePath: string, destDir: string, opts: ExtractOptions = {}): Promise<void> {
+  fs.mkdirSync(destDir, { recursive: true });
+
+  // fzstd's Decompress class consumes chunks via push() and emits decoded
+  // bytes through the supplied callback. We adapt it to a Node Transform so
+  // we can pipeline filesystem read -> zstd decode -> node-tar.
+  const zstdTransform = new Transform({
+    construct(this: Transform & { _decoder?: Decompress }, callback) {
+      this._decoder = new Decompress((chunk, final) => {
+        if (chunk.length > 0) this.push(Buffer.from(chunk));
+        if (final) this.push(null);
+      });
+      callback();
+    },
+    transform(this: Transform & { _decoder?: Decompress }, chunk: Buffer, _enc, callback) {
+      try {
+        this._decoder!.push(new Uint8Array(chunk), false);
+        callback();
+      } catch (err) { callback(err as Error); }
+    },
+    flush(this: Transform & { _decoder?: Decompress }, callback) {
+      try {
+        this._decoder!.push(new Uint8Array(0), true);
+        callback();
+      } catch (err) { callback(err as Error); }
+    },
+  });
+
+  const tarExtract = tar.x({ cwd: destDir, strip: 0 });
+  await pipeline(fs.createReadStream(archivePath), zstdTransform, tarExtract);
+
+  log.dim(`Extracted ${path.basename(archivePath)}`);
+  assertExtractedBinary(path.resolve(destDir), opts.expectBinary, archivePath);
 }
 
 function assertExtractedBinary(destDir: string, expectBinary: string | undefined, archive: string): void {

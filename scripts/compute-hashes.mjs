@@ -28,8 +28,8 @@ const ASSETS = {
   ollama: [
     `${OLLAMA_BASE}/ollama-windows-amd64.zip`,
     `${OLLAMA_BASE}/ollama-darwin.zip`,
-    `${OLLAMA_BASE}/ollama-linux-amd64.tgz`,
-    `${OLLAMA_BASE}/ollama-linux-arm64.tgz`,
+    `${OLLAMA_BASE}/ollama-linux-amd64.tar.zst`,
+    `${OLLAMA_BASE}/ollama-linux-arm64.tar.zst`,
   ],
   opencode: [
     `${OPENCODE_BASE}/opencode-windows-x64.zip`,
