@@ -1,5 +1,4 @@
 // Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a
-import drivelist from "drivelist";
 import inquirer from "inquirer";
 import path from "node:path";
 import fs from "node:fs";
@@ -9,8 +8,61 @@ import { promptWithEsc } from "../utils/prompt.js";
 
 interface DriveChoice { name: string; value: string; }
 
+interface DrivelistMountpoint { path: string; label?: string; }
+interface DrivelistEntry {
+  isRemovable: boolean;
+  mountpoints: DrivelistMountpoint[];
+  size?: number;
+  description?: string;
+}
+interface DrivelistApi { list: () => Promise<DrivelistEntry[]>; }
+
+let drivelistCache: DrivelistApi | null | undefined;
+let drivelistWarned = false;
+
+/**
+ * drivelist has native bindings — on hosts without the prebuilt addon for the
+ * current arch (Windows without VS Build Tools is the common one) `npm install`
+ * skips it (it's an optionalDependency). A static `import` would crash the
+ * whole CLI at module-load time, including `--version` and `--target`. Load it
+ * lazily so commands that don't need auto-detection still work.
+ */
+async function loadDrivelist(): Promise<DrivelistApi | null> {
+  if (drivelistCache !== undefined) return drivelistCache;
+  try {
+    const mod: unknown = await import("drivelist");
+    // CJS-via-ESM can yield: the module itself, { default: module }, or
+    // { default: { list }, list }. Find whichever shape exposes `.list`.
+    const candidates: unknown[] = [
+      (mod as { default?: unknown })?.default,
+      mod,
+      (mod as { default?: { default?: unknown } })?.default?.default,
+    ];
+    for (const c of candidates) {
+      if (c && typeof (c as DrivelistApi).list === "function") {
+        drivelistCache = c as DrivelistApi;
+        return drivelistCache;
+      }
+    }
+    throw new Error("drivelist module loaded but `.list` is not a function");
+  } catch (err) {
+    drivelistCache = null;
+    if (!drivelistWarned) {
+      drivelistWarned = true;
+      log.warn(
+        "Could not load drivelist (likely missing native deps). " +
+        "Auto-detection disabled — use --target <path> or enter the path manually."
+      );
+      log.dim(`  reason: ${(err as Error).message}`);
+    }
+    return null;
+  }
+}
+
 export async function detectUSBDrives(): Promise<DriveChoice[]> {
-  const drives = await drivelist.list();
+  const dl = await loadDrivelist();
+  if (!dl) return [];
+  const drives = await dl.list();
   const removable = drives.filter(
     (d) => d.isRemovable && d.mountpoints.length > 0 && d.size
   );
@@ -49,9 +101,11 @@ export function looksLikeSystemPath(p: string): string | null {
 }
 
 async function isOnRemovableDrive(p: string): Promise<boolean> {
+  const dl = await loadDrivelist();
+  if (!dl) return false;
   try {
     const resolved = path.resolve(p).toLowerCase();
-    const drives = await drivelist.list();
+    const drives = await dl.list();
     for (const d of drives) {
       if (!d.isRemovable) continue;
       for (const mp of d.mountpoints || []) {

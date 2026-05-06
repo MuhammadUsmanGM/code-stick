@@ -19,7 +19,7 @@ import { renderLaunchers } from "../core/launcher-gen.js";
 import { saveManifest, loadManifest, type Manifest } from "../state/manifest.js";
 import { preflightFilesystem, warnIfLosesExecBit } from "../core/preflight.js";
 import { postInstallCleanup } from "../core/cleanup.js";
-import { setupShutdownHooks, stopAll } from "../core/process-manager.js";
+import { setupShutdownHooks, stopAll, registerCleanup } from "../core/process-manager.js";
 import { stripQuarantineIfMac } from "../core/macos.js";
 import { pullModelTag } from "../core/model-pull.js";
 import { writeOpencodeConfig } from "../core/opencode-config.js";
@@ -67,7 +67,13 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
             default: false,
           },
         ]);
-        if (!ans) continue; // Esc → re-pick drive
+        // With --target, Esc has no earlier step to rewind to (pickInstallDrive
+        // would just auto-accept the same path again — infinite loop). Treat
+        // Esc as cancel in that case.
+        if (!ans) {
+          if (opts.target) { log.info("Cancelled."); return; }
+          continue; // re-open drive picker
+        }
         if (!ans.proceed) { log.info("Cancelled."); return; }
       }
       step = "model";
@@ -157,8 +163,8 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
         const confirm = await promptWithEsc<{ proceed: boolean }>([
           { type: "confirm", name: "proceed", message: "Continue with Direct-to-USB?", default: true },
         ]);
-        if (!confirm) continue;
-        if (!confirm.proceed) continue;
+        if (!confirm) { log.dim("Going back to install method picker..."); continue; }
+        if (!confirm.proceed) { log.dim("Pick a different install method:"); continue; }
       }
 
       installMode = ans.mode;
@@ -258,17 +264,19 @@ async function pullModelFast(drivePath: string, model: CodingModel, finalData: s
     );
   }
 
+  // Create stage dir + register cleanup BEFORE any await so a SIGINT between
+  // mkdtempSync and the first network call still removes the dir via stopAll.
   const stageRoot = fs.mkdtempSync(path.join(os.tmpdir(), "code-stick-stage-"));
-  const stagedData = path.join(stageRoot, "data");
-  fs.mkdirSync(stagedData, { recursive: true });
-
   const cleanupStage = () => {
     try { fs.rmSync(stageRoot, { recursive: true, force: true }); } catch { /* ignore */ }
   };
-  const onInterrupt = () => { cleanupStage(); process.exit(130); };
-  process.once("SIGINT", onInterrupt);
+  // Single SIGINT path — the global setupShutdownHooks calls stopAll() which
+  // fires this callback after processes are killed. No competing process.exit.
+  const unregister = registerCleanup(cleanupStage);
 
   try {
+    const stagedData = path.join(stageRoot, "data");
+    fs.mkdirSync(stagedData, { recursive: true });
     log.dim(`Staging blobs at ${stagedData}...`);
     await pullModelTag(drivePath, model.tag, stagedData);
     await copyDirWithProgress(stagedData, finalData, "Copying model to USB");
@@ -280,7 +288,7 @@ async function pullModelFast(drivePath: string, model: CodingModel, finalData: s
     }
     throw err;
   } finally {
-    process.removeListener("SIGINT", onInterrupt);
+    unregister();
     cleanupStage();
   }
 }

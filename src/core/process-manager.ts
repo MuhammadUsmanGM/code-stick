@@ -154,10 +154,27 @@ export function runOpencodeForeground(drivePath: string): Promise<number> {
   });
 }
 
+type CleanupFn = () => void | Promise<void>;
+const cleanupCallbacks = new Set<CleanupFn>();
+
+/** Register a synchronous-or-async cleanup callback fired by stopAll() and the
+ *  SIGINT/SIGTERM hook. Returns an unregister function so callers can scope
+ *  the callback to a single operation (e.g. the fast-mode stage dir). */
+export function registerCleanup(fn: CleanupFn): () => void {
+  cleanupCallbacks.add(fn);
+  return () => { cleanupCallbacks.delete(fn); };
+}
+
 export async function stopAll(): Promise<void> {
   log.info("Shutting down...");
   const names = new Set<string>(["opencode", "ollama", ...processes.keys()]);
   await Promise.all([...names].map((name) => killProcess(name)));
+  // Run cleanup callbacks AFTER processes are dead so e.g. stage-dir rm can't
+  // race the temp Ollama still holding file handles.
+  for (const fn of [...cleanupCallbacks]) {
+    try { await fn(); } catch (err) { log.dim(`cleanup callback failed: ${(err as Error).message}`); }
+    cleanupCallbacks.delete(fn);
+  }
   log.success("All processes stopped");
 }
 
