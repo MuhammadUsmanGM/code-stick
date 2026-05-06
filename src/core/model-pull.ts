@@ -16,6 +16,7 @@ import { checkPortFree, waitForOllama } from "./process-manager.js";
 async function withTempOllama<T>(
   drivePath: string,
   fn: (ollamaBin: string, env: NodeJS.ProcessEnv) => Promise<T>,
+  dataDirOverride?: string,
 ): Promise<T> {
   await checkPortFree();
 
@@ -29,7 +30,7 @@ async function withTempOllama<T>(
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
-    OLLAMA_MODELS: p.data,
+    OLLAMA_MODELS: dataDirOverride ?? p.data,
     OLLAMA_HOST: "127.0.0.1:11434",
   };
 
@@ -63,34 +64,16 @@ function runOllama(bin: string, env: NodeJS.ProcessEnv, args: string[], stdio: "
   });
 }
 
-/**
- * Remove leftover `sha256-*-partial*` blobs from a previously-interrupted pull.
- * Safe to call before a fresh pull because the manifest lock prevents another
- * code-stick process from having an in-flight pull on the same stick. We never
- * touch finalized blobs (no `-partial` infix) — those belong to other models.
- */
-function pruneStalePartialBlobs(drivePath: string): void {
-  const blobsDir = path.join(usbPaths(drivePath).data, "blobs");
-  let entries: string[];
-  try { entries = fs.readdirSync(blobsDir); }
-  catch { return; }
-  let pruned = 0;
-  for (const name of entries) {
-    if (!name.startsWith("sha256-")) continue;
-    if (!name.includes("-partial")) continue;
-    try { fs.unlinkSync(path.join(blobsDir, name)); pruned++; }
-    catch { /* best-effort */ }
-  }
-  if (pruned > 0) log.dim(`Cleared ${pruned} partial blob(s) from a previous pull.`);
-}
-
-export async function pullModelTag(drivePath: string, tag: string): Promise<void> {
-  pruneStalePartialBlobs(drivePath);
+export async function pullModelTag(
+  drivePath: string,
+  tag: string,
+  dataDirOverride?: string,
+): Promise<void> {
   await withTempOllama(drivePath, async (bin, env) => {
     log.info(`Running ollama pull ${tag} (this can take a while)...`);
     await runOllama(bin, env, ["pull", tag]);
-    log.success(`Model ${tag} stored on USB`);
-  });
+    log.success(`Model ${tag} stored`);
+  }, dataDirOverride);
 }
 
 export async function removeModelTag(drivePath: string, tag: string): Promise<void> {

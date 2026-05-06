@@ -17,9 +17,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "hashes": "node scripts/compute-hashes.mjs",
-    "postinstall": "node scripts/postinstall.mjs",
-    "verify-publish": "node scripts/verify-publish.mjs",
-    "prepublishOnly": "npm run build && npm run verify-publish"
+    "prepublishOnly": "npm run build && node -e \"require('fs').accessSync('dist/cli.js'); require('fs').accessSync('templates/start-windows.bat.ejs'); require('fs').accessSync('templates/start-mac.command.ejs'); require('fs').accessSync('templates/start-linux.sh.ejs');\""
   },
   "engines": {
     "node": ">=20"
@@ -59,7 +57,6 @@
     "commander": "^12.1.0",
     "ejs": "^3.1.10",
     "extract-zip": "^2.0.1",
-    "fzstd": "^0.1.1",
     "got": "^14.4.1",
     "hasha": "^6.0.0",
     "inquirer": "^9.2.23",

@@ -3,7 +3,7 @@ import { log } from "../utils/logger.js";
 import { promptWithEsc } from "../utils/prompt.js";
 import { pickDrive, assertDriveReady } from "../core/usb.js";
 import { findModel } from "../catalog/models.js";
-import { withManifestLock } from "../state/manifest.js";
+import { loadManifest, saveManifest } from "../state/manifest.js";
 import { removeModelTag } from "../core/model-pull.js";
 import { writeOpencodeConfig } from "../core/opencode-config.js";
 import { renderLaunchers } from "../core/launcher-gen.js";
@@ -21,53 +21,52 @@ export async function removeModelCommand(modelId: string | undefined, opts: Remo
   const drivePath = await pickDrive(opts.target);
   assertDriveReady(drivePath);
 
-  const removed = await withManifestLock(drivePath, async (manifest) => {
-    if (!manifest) {
-      log.error("No installation found at this drive.");
-      process.exit(1);
+  const manifest = loadManifest(drivePath);
+  if (!manifest) {
+    log.error("No installation found at this drive.");
+    process.exit(1);
+  }
+
+  const targetId = await pickInstalledModel(modelId, manifest.models.map((m) => ({ id: m.id, tag: m.tag })));
+  if (!targetId) { log.info("Cancelled."); return; }
+
+  const entry = manifest.models.find((m) => m.id === targetId);
+  if (!entry) { log.error(`Model ${targetId} is not installed.`); return; }
+
+  if (manifest.models.length === 1 && !opts.force) {
+    throw new Error(
+      `${entry.tag} is the only model on this stick. Pass --force to remove (the stick will need a fresh install or add-model afterwards).`
+    );
+  }
+  if (entry.id === manifest.defaultModelId && manifest.models.length > 1 && !opts.force) {
+    throw new Error(
+      `${entry.tag} is the default model. Set another default first via 'code-stick add-model --set-default', or pass --force.`
+    );
+  }
+
+  try {
+    await removeModelTag(drivePath, entry.tag);
+  } finally {
+    await stopAll().catch(() => undefined);
+  }
+
+  manifest.models = manifest.models.filter((m) => m.id !== entry.id);
+  if (manifest.models.length > 0) {
+    if (manifest.defaultModelId === entry.id) {
+      manifest.defaultModelId = manifest.models[0].id;
+      log.info(`New default model: ${manifest.models[0].tag}`);
     }
+    writeOpencodeConfig(drivePath, manifest);
+    renderLaunchers(drivePath, {
+      modelTag: manifest.models.find((m) => m.id === manifest.defaultModelId)?.tag ?? manifest.models[0].tag,
+    });
+  } else {
+    log.warn("Stick now has no models — run `code-stick add-model` before next launch.");
+  }
+  manifest.updatedAt = new Date().toISOString();
+  saveManifest(drivePath, manifest);
 
-    const targetId = await pickInstalledModel(modelId, manifest.models.map((m) => ({ id: m.id, tag: m.tag })));
-    if (!targetId) { log.info("Cancelled."); return { manifest: null, result: null }; }
-
-    const entry = manifest.models.find((m) => m.id === targetId);
-    if (!entry) { log.error(`Model ${targetId} is not installed.`); return { manifest: null, result: null }; }
-
-    if (manifest.models.length === 1 && !opts.force) {
-      throw new Error(
-        `${entry.tag} is the only model on this stick. Pass --force to remove (the stick will need a fresh install or add-model afterwards).`
-      );
-    }
-    if (entry.id === manifest.defaultModelId && manifest.models.length > 1 && !opts.force) {
-      throw new Error(
-        `${entry.tag} is the default model. Set another default first via 'code-stick add-model --set-default', or pass --force.`
-      );
-    }
-
-    try {
-      await removeModelTag(drivePath, entry.tag);
-    } finally {
-      await stopAll().catch(() => undefined);
-    }
-
-    manifest.models = manifest.models.filter((m) => m.id !== entry.id);
-    if (manifest.models.length > 0) {
-      if (manifest.defaultModelId === entry.id) {
-        manifest.defaultModelId = manifest.models[0].id;
-        log.info(`New default model: ${manifest.models[0].tag}`);
-      }
-      writeOpencodeConfig(drivePath, manifest);
-      renderLaunchers(drivePath, {
-        modelTag: manifest.models.find((m) => m.id === manifest.defaultModelId)?.tag ?? manifest.models[0].tag,
-      });
-    } else {
-      log.warn("Stick now has no models — run `code-stick add-model` before next launch.");
-    }
-    manifest.updatedAt = new Date().toISOString();
-    return { manifest, result: entry };
-  });
-
-  if (removed) log.success(`Removed ${removed.tag} from ${drivePath}`);
+  log.success(`Removed ${entry.tag} from ${drivePath}`);
 }
 
 async function pickInstalledModel(

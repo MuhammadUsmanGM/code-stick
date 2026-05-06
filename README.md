@@ -11,10 +11,22 @@ The CLI will:
 
 1. Auto-detect your USB drive (or take `--target <path>`)
 2. Let you pick a coding model
-3. Download Ollama + opencode binaries for **all 5 targets** onto the stick
-4. Pull the model into a USB-local Ollama store (`<USB>/data`) — never touches the host
-5. Write `start-windows.bat`, `start-mac.command`, `start-linux.sh` at the USB root
-6. Clean up installer archives and temp dirs
+3. Ask **Fast vs Direct** install mode (see below)
+4. Download Ollama + opencode binaries for **all 5 targets** onto the stick
+5. Pull the model into a USB-local Ollama store (`<USB>/data`) — host temp is auto-cleaned
+6. Write `start-windows.bat`, `start-mac.command`, `start-linux.sh` at the USB root
+7. Clean up installer archives and temp dirs
+
+Press **Esc** at any prompt to step back.
+
+### Fast vs Direct install
+
+| Mode       | What it does                                                                   | Needs                                                            | Best when                              |
+| ---------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------- | -------------------------------------- |
+| **Fast**   | Pull model into host temp, then copy blobs to USB.                             | ~2× model size of free space in `%TEMP%`/`/tmp` (auto-cleaned)   | Slow USB sticks — usually much faster  |
+| **Direct** | Pull model straight onto the USB.                                              | Nothing extra on host                                            | Tiny host disk; fast USB 3 stick       |
+
+If the host and USB resolve to the same physical device, Fast is auto-skipped (no perf gain, doubles disk use).
 
 Plug the stick into any supported machine, double-click the launcher for that OS. opencode runs in the terminal talking to a USB-local Ollama on `127.0.0.1:11434`. Quitting opencode kills the Ollama process. Nothing is left behind on the host.
 
@@ -89,10 +101,6 @@ bash start-mac.command
 ```
 
 For long-term use, format the stick as **NTFS** (Windows + Linux) or **APFS/HFS+** (macOS-only) — or **exFAT** if you accept the `bash` workaround for cross-OS use.
-
-### A model pull was interrupted
-
-Re-run `code-stick add-model <id>` (or `install --model <id>`). Ollama's pull is resumable, and code-stick prunes any `sha256-*-partial` blobs left from the previous attempt before retrying.
 
 ### Ollama port 11434 already in use
 

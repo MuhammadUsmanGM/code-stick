@@ -5,7 +5,7 @@ import { log } from "../utils/logger.js";
 import { promptWithEsc } from "../utils/prompt.js";
 import { pickDrive, assertDriveReady } from "../core/usb.js";
 import { usbPaths } from "../utils/paths.js";
-import { loadManifest, withManifestLock } from "../state/manifest.js";
+import { loadManifest } from "../state/manifest.js";
 
 interface UninstallOptions {
   target?: string;
@@ -13,10 +13,9 @@ interface UninstallOptions {
 }
 
 const REMOVE_DIRS = ["engine", "opencode", "data", "config", ".code-stick-tmp"];
-// Note: code-stick.json.lock is NOT listed here — the manifest lock we hold
-// during the wipe is that file, and withManifestLock() releases it on exit.
 const REMOVE_FILES = [
   "code-stick.json",
+  "code-stick.json.lock",
   "start-windows.bat",
   "start-mac.command",
   "start-linux.sh",
@@ -51,40 +50,34 @@ export async function uninstallCommand(opts: UninstallOptions): Promise<void> {
 
   const p = usbPaths(drivePath);
   const before = directorySize(drivePath, REMOVE_DIRS);
+  let removedBytes = 0;
 
-  // Hold the manifest lock for the whole wipe so a sibling add-model /
-  // remove-model / update on the same stick cannot race against deletion.
-  // We deliberately return `manifest: null` so withManifestLock writes nothing
-  // back — the file is being deleted as part of the wipe.
-  await withManifestLock(drivePath, async () => {
-    for (const rel of REMOVE_DIRS) {
-      const full = path.join(drivePath, rel);
-      if (!fs.existsSync(full)) continue;
-      try {
-        fs.rmSync(full, { recursive: true, force: true });
-        log.dim(`Removed ${rel}/`);
-      } catch (err) {
-        log.warn(`Could not remove ${rel}/: ${(err as Error).message}`);
-      }
+  for (const rel of REMOVE_DIRS) {
+    const full = path.join(drivePath, rel);
+    if (!fs.existsSync(full)) continue;
+    try {
+      fs.rmSync(full, { recursive: true, force: true });
+      log.dim(`Removed ${rel}/`);
+    } catch (err) {
+      log.warn(`Could not remove ${rel}/: ${(err as Error).message}`);
     }
+  }
 
-    for (const rel of REMOVE_FILES) {
-      const full = rel === "code-stick.json" ? p.manifest : path.join(drivePath, rel);
-      if (!fs.existsSync(full)) continue;
-      try {
-        fs.unlinkSync(full);
-        log.dim(`Removed ${rel}`);
-      } catch (err) {
-        log.warn(`Could not remove ${rel}: ${(err as Error).message}`);
-      }
+  for (const rel of REMOVE_FILES) {
+    const full = rel === "code-stick.json" ? p.manifest : path.join(drivePath, rel);
+    if (!fs.existsSync(full)) continue;
+    try {
+      fs.unlinkSync(full);
+      log.dim(`Removed ${rel}`);
+    } catch (err) {
+      log.warn(`Could not remove ${rel}: ${(err as Error).message}`);
     }
+  }
 
-    return { manifest: null, result: undefined };
-  });
-
+  removedBytes = before;
   log.success(`Uninstalled code-stick from ${drivePath}`);
-  if (before > 0) {
-    log.dim(`Freed approximately ${(before / 1e9).toFixed(2)} GB`);
+  if (removedBytes > 0) {
+    log.dim(`Freed approximately ${(removedBytes / 1e9).toFixed(2)} GB`);
   }
 }
 
