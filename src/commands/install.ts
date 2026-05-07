@@ -24,6 +24,7 @@ import { stripQuarantineIfMac } from "../core/macos.js";
 import { pullModelTag } from "../core/model-pull.js";
 import { writeOpencodeConfig } from "../core/opencode-config.js";
 import { copyDirWithProgress } from "../core/copy.js";
+import { prestageOpencodeProviders } from "../core/opencode-prestage.js";
 
 interface InstallOptions {
   target?: string;
@@ -200,6 +201,8 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   fs.mkdirSync(tempDir, { recursive: true });
   fs.mkdirSync(p.data, { recursive: true });
   fs.mkdirSync(p.config, { recursive: true });
+  fs.mkdirSync(p.cache, { recursive: true });
+  fs.mkdirSync(p.state, { recursive: true });
 
   const totalSteps = 5;
   log.blank();
@@ -233,8 +236,19 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     opencodeVersion: OPENCODE_VERSION,
   };
 
-  log.step(4, totalSteps, "Writing opencode config + launchers...");
+  log.step(4, totalSteps, "Writing opencode config + pre-staging providers + launchers...");
   writeOpencodeConfig(drivePath, manifest);
+  // Pre-stage @ai-sdk/openai-compatible into <USB>/cache/opencode so the
+  // standalone opencode binary doesn't reach out to npm on first launch.
+  // Best-effort: if the host is missing npm, surface a warning but keep
+  // going — the user can still install the package on first online launch.
+  const prestage = prestageOpencodeProviders(p.opencodeCache);
+  if (!prestage.ok) {
+    log.warn(`Could not pre-stage opencode provider package: ${prestage.reason}`);
+    log.dim("Offline launches will fail until the package is fetched from npm. " +
+            "Run `code-stick install` again on a host with npm available, " +
+            "or run opencode once on an online machine to populate the cache.");
+  }
   renderLaunchers(drivePath, { modelTag: model!.tag });
 
   const skipCleanup = opts.cleanup === false;

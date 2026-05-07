@@ -135,13 +135,20 @@ export function runOpencodeForeground(drivePath: string): Promise<number> {
     const child = spawn(exe, [], {
       env: {
         ...process.env,
-        // Point opencode at the bundled config so the AI provider is preset.
-        // opencode reads $XDG_CONFIG_HOME/opencode/opencode.json on POSIX, and
-        // %APPDATA%\opencode\opencode.json on Windows. We provision both at
-        // install time under <USB>/config/, then the launcher / `code-stick
-        // start` redirects these env vars.
+        // Pin opencode's config + caches onto the USB so first launch is
+        // fully offline-capable: config (provider declaration), cache
+        // (pre-staged @ai-sdk/openai-compatible node_modules), data + state
+        // (runtime). The launchers wire the same vars; this branch covers
+        // `code-stick start` from the host machine itself.
         XDG_CONFIG_HOME: p.config,
+        XDG_CACHE_HOME: p.cache,
+        XDG_DATA_HOME: path.join(p.data, "xdg"),
+        XDG_STATE_HOME: p.state,
         APPDATA: p.config,
+        LOCALAPPDATA: p.cache,
+        OPENCODE_CONFIG: path.join(p.config, "opencode", "opencode.json"),
+        OPENCODE_DISABLE_AUTOUPDATE: "1",
+        OPENCODE_DISABLE_WATCHER: "1",
         OLLAMA_HOST: "127.0.0.1:11434",
       },
       stdio: "inherit",

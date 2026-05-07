@@ -37,7 +37,15 @@ fi
 
 export OLLAMA_MODELS="$USB_ROOT/data"
 export OLLAMA_HOST="127.0.0.1:11434"
+# Pin opencode's config + caches onto the USB so nothing leaks to the host.
+# (xdg-basedir, used by opencode, honors these on macOS too.)
 export XDG_CONFIG_HOME="$USB_ROOT/config"
+export XDG_CACHE_HOME="$USB_ROOT/cache"
+export XDG_DATA_HOME="$USB_ROOT/data/xdg"
+export XDG_STATE_HOME="$USB_ROOT/state"
+export OPENCODE_DISABLE_AUTOUPDATE=1
+export OPENCODE_DISABLE_WATCHER=1
+export OPENCODE_CONFIG="$USB_ROOT/config/opencode/opencode.json"
 
 cleanup() {
   if [ -n "${OLLAMA_PID:-}" ]; then

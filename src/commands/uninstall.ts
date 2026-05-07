@@ -12,7 +12,7 @@ interface UninstallOptions {
   yes?: boolean;
 }
 
-const REMOVE_DIRS = ["engine", "opencode", "data", "config", ".code-stick-tmp"];
+const REMOVE_DIRS = ["engine", "opencode", "data", "config", "cache", "state", ".code-stick-tmp"];
 const REMOVE_FILES = [
   "code-stick.json",
   "code-stick.json.lock",

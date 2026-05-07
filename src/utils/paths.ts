@@ -8,7 +8,9 @@ import type { Target } from "../catalog/targets.js";
  *   <root>/engine/<target>/             ollama binary for each target
  *   <root>/opencode/<target>/           opencode binary for each target
  *   <root>/data/                        OLLAMA_MODELS — model blobs live here
- *   <root>/config/                      opencode.json + per-app config (XDG/APPDATA redirect target)
+ *   <root>/config/                      XDG_CONFIG_HOME redirect (opencode/opencode.json lives here)
+ *   <root>/cache/                       XDG_CACHE_HOME redirect (opencode/node_modules pre-staged here)
+ *   <root>/state/                       XDG_STATE_HOME redirect (opencode runtime state)
  *   <root>/start-windows.bat
  *   <root>/start-mac.command
  *   <root>/start-linux.sh
@@ -21,7 +23,13 @@ export function usbPaths(root: string) {
     opencode: (target: Target) => path.join(root, "opencode", target),
     data: path.join(root, "data"),
     config: path.join(root, "config"),
+    cache: path.join(root, "cache"),
+    state: path.join(root, "state"),
     opencodeConfig: path.join(root, "config", "opencode.json"),
+    // opencode resolves npm-declared providers under
+    // $XDG_CACHE_HOME/opencode/node_modules. Pre-staged at install time so
+    // the standalone binary never reaches out to npm at runtime.
+    opencodeCache: path.join(root, "cache", "opencode"),
     launcher: (kind: "windows" | "mac" | "linux") => {
       if (kind === "windows") return path.join(root, "start-windows.bat");
       if (kind === "mac") return path.join(root, "start-mac.command");

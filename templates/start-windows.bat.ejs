@@ -11,9 +11,20 @@ set "OLLAMA_BIN=%USB_ROOT%\engine\windows-x64\ollama.exe"
 set "OPENCODE_BIN=%USB_ROOT%\opencode\windows-x64\opencode.exe"
 set "OLLAMA_MODELS=%USB_ROOT%\data"
 set "OLLAMA_HOST=127.0.0.1:11434"
-REM Redirect opencode config to the USB. opencode reads %APPDATA%\opencode on Windows.
+REM Pin opencode's config + caches onto the USB so nothing leaks to the host.
+REM xdg-basedir (the Node module opencode uses) honors these on Windows too,
+REM and APPDATA/LOCALAPPDATA are the Windows-native fallbacks for the same dirs.
 set "APPDATA=%USB_ROOT%\config"
+set "LOCALAPPDATA=%USB_ROOT%\cache"
 set "XDG_CONFIG_HOME=%USB_ROOT%\config"
+set "XDG_CACHE_HOME=%USB_ROOT%\cache"
+set "XDG_DATA_HOME=%USB_ROOT%\data\xdg"
+set "XDG_STATE_HOME=%USB_ROOT%\state"
+REM Skip opencode's autoupdate check + filesystem watcher (USB I/O is slow).
+set "OPENCODE_DISABLE_AUTOUPDATE=1"
+set "OPENCODE_DISABLE_WATCHER=1"
+REM Pin the config file path explicitly — opencode honors $OPENCODE_CONFIG.
+set "OPENCODE_CONFIG=%USB_ROOT%\config\opencode\opencode.json"
 
 if not exist "%OLLAMA_BIN%" (
   echo [code-stick] Missing engine binary: %OLLAMA_BIN%
