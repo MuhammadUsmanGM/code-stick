@@ -26,31 +26,31 @@ export const OPENCODE: Record<Target, OpencodeArtifact> = {
     url: `${BASE}/opencode-windows-x64.zip`,
     filename: "opencode-windows-x64.zip",
     type: "zip",
-    sha256: "PENDING-opencode-windows-x64",
+    sha256: "8cb328f72da3a11410bc13e765d1630e028d71f821d93bf8c72387dc2ae5c8ee",
   },
   "darwin-arm64": {
     url: `${BASE}/opencode-darwin-arm64.zip`,
     filename: "opencode-darwin-arm64.zip",
     type: "zip",
-    sha256: "PENDING-opencode-darwin-arm64",
+    sha256: "33c3ffab030deac8cfe7146da417c5ff1dc524518a3febe9c940f2c5fe27dedb",
   },
   "darwin-x64": {
     url: `${BASE}/opencode-darwin-x64.zip`,
     filename: "opencode-darwin-x64.zip",
     type: "zip",
-    sha256: "PENDING-opencode-darwin-x64",
+    sha256: "c8c75e7e7e0222e105c13baa80c7c2a6e3fe74c31ef408dbefbedcf9d40b18db",
   },
   "linux-x64": {
     url: `${BASE}/opencode-linux-x64.zip`,
     filename: "opencode-linux-x64.zip",
     type: "zip",
-    sha256: "PENDING-opencode-linux-x64",
+    sha256: "1968fcc667b7dabd0c9b215af020cd13e12a056b8ec258074948377161d09ac2",
   },
   "linux-arm64": {
     url: `${BASE}/opencode-linux-arm64.zip`,
     filename: "opencode-linux-arm64.zip",
     type: "zip",
-    sha256: "PENDING-opencode-linux-arm64",
+    sha256: "9d0229704cf889afa89ba9a58053e811bafb5c4d32edc76f396a03754c12e08b",
   },
 };
 

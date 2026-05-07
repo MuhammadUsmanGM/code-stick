@@ -34,7 +34,10 @@ interface InstallOptions {
 
 type InstallMode = "fast" | "slow";
 
-const OLLAMA_VERSION = "v0.21.2";
+// Mixed reality: Win/macOS ship v0.21.2, Linux ships v0.13.0 (last release with
+// .tgz — v0.14+ is .tar.zst only). Manifest stores both so upgrade tooling can
+// reason about per-target versions. opencode is uniform across targets.
+const OLLAMA_VERSION = "v0.21.2 (linux=v0.13.0)";
 const OPENCODE_VERSION = "v0.4.18";
 
 const BINARY_FOOTPRINT_GB = 1.5;
