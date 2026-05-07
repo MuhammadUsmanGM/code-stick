@@ -6,7 +6,9 @@ import { log } from "../utils/logger.js";
 import { hostTarget } from "../utils/platform.js";
 import { usbPaths } from "../utils/paths.js";
 import { ollamaBinaryRel } from "../catalog/ollama.js";
-import { checkPortFree, waitForOllama } from "./process-manager.js";
+import {
+  checkPortFree, waitForOllama, registerProcess, killProcess,
+} from "./process-manager.js";
 
 /**
  * Spawn a temp Ollama server pointed at the USB store and run an arbitrary
@@ -38,6 +40,9 @@ async function withTempOllama<T>(
   const server = spawn(ollamaBin, ["serve"], {
     env, stdio: "ignore", windowsHide: true, detached: false,
   });
+  // Register with the global process manager so SIGINT/stopAll() tears it
+  // down with tree-kill + grace period instead of orphaning it on port 11434.
+  registerProcess("ollama-temp", server);
 
   let serverExited = false;
   server.on("exit", () => { serverExited = true; });
@@ -49,7 +54,7 @@ async function withTempOllama<T>(
     return await fn(ollamaBin, env);
   } finally {
     log.dim("Stopping temporary Ollama server...");
-    try { server.kill(); } catch { /* ignore */ }
+    await killProcess("ollama-temp");
   }
 }
 

@@ -14,7 +14,7 @@ import { OLLAMA, ollamaBinaryRel } from "../catalog/ollama.js";
 import { OPENCODE, opencodeBinaryRel } from "../catalog/opencode.js";
 import { MODELS, findModel, type CodingModel } from "../catalog/models.js";
 import { download } from "../core/downloader.js";
-import { extractZipFile, extractTarFile } from "../core/extract.js";
+import { extractZipFile, extractTarFile, ensureBinaryAt } from "../core/extract.js";
 import { renderLaunchers } from "../core/launcher-gen.js";
 import { saveManifest, loadManifest, type Manifest } from "../state/manifest.js";
 import { preflightFilesystem, warnIfLosesExecBit } from "../core/preflight.js";
@@ -29,7 +29,8 @@ interface InstallOptions {
   target?: string;
   model?: string;
   yes?: boolean;
-  noCleanup?: boolean;
+  // Commander's --no-cleanup flag flips this to false; default (omitted) is true.
+  cleanup?: boolean;
 }
 
 type InstallMode = "fast" | "slow";
@@ -236,9 +237,10 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   writeOpencodeConfig(drivePath, manifest);
   renderLaunchers(drivePath, { modelTag: model!.tag });
 
-  log.step(5, totalSteps, opts.noCleanup ? "Writing manifest (cleanup skipped)..." : "Writing manifest + cleanup...");
+  const skipCleanup = opts.cleanup === false;
+  log.step(5, totalSteps, skipCleanup ? "Writing manifest (cleanup skipped)..." : "Writing manifest + cleanup...");
   saveManifest(drivePath, manifest);
-  if (opts.noCleanup) {
+  if (skipCleanup) {
     log.dim("Skipping cleanup (--no-cleanup) — installer archives + .code-stick-tmp left in place");
   } else {
     postInstallCleanup(drivePath, tempDir);
@@ -314,7 +316,9 @@ async function fetchAndExtractOllama(target: Target, destDir: string, tempDir: s
   });
   if (art.type === "zip") await extractZipFile(archivePath, destDir);
   else await extractTarFile(archivePath, destDir);
-  ensureExecutable(path.join(destDir, ollamaBinaryRel(target)));
+  const rel = ollamaBinaryRel(target);
+  ensureBinaryAt(destDir, rel, `ollama ${target}`);
+  ensureExecutable(path.join(destDir, rel));
 }
 
 async function fetchAndExtractOpencode(target: Target, destDir: string, tempDir: string): Promise<void> {
@@ -327,7 +331,9 @@ async function fetchAndExtractOpencode(target: Target, destDir: string, tempDir:
   });
   if (art.type === "zip") await extractZipFile(archivePath, destDir);
   else await extractTarFile(archivePath, destDir);
-  ensureExecutable(path.join(destDir, opencodeBinaryRel(target)));
+  const rel = opencodeBinaryRel(target);
+  ensureBinaryAt(destDir, rel, `opencode ${target}`);
+  ensureExecutable(path.join(destDir, rel));
 }
 
 function ensureExecutable(binPath: string): void {

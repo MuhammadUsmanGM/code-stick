@@ -110,7 +110,8 @@ async function attemptDownload(url: string, partialPath: string, label?: string)
   );
 
   const stream = got.stream(url, {
-    headers, followRedirect: true, retry: { limit: 0 }, timeout: { response: 15000 },
+    headers, followRedirect: true, retry: { limit: 0 },
+    timeout: { response: 15000, socket: 60000 },
   });
 
   let totalBytes = 0;
@@ -119,7 +120,13 @@ async function attemptDownload(url: string, partialPath: string, label?: string)
   let lastTime = Date.now();
   let lastBytes = startByte;
   let writeMode: "a" | "w" = startByte > 0 ? "a" : "w";
+  let rangeMismatch: Error | null = null;
 
+  // CRITICAL: do NOT attach a `data` listener here. Got streams enter flowing
+  // mode the moment a `data` listener is registered — any chunk consumed
+  // before pipeline() wires the writable is dropped on the floor (manifests
+  // as a short file → hash mismatch → infinite retry on fast LANs). Use
+  // `downloadProgress` instead, which got computes without consuming chunks.
   stream.on("response", (response) => {
     const contentLength = parseInt(response.headers["content-length"] || "0", 10);
     if (response.statusCode === 206) {
@@ -127,13 +134,16 @@ async function attemptDownload(url: string, partialPath: string, label?: string)
       if (typeof contentRange === "string") {
         const m = /^bytes (\d+)-(\d+)\/(\d+|\*)/i.exec(contentRange);
         if (!m || parseInt(m[1], 10) !== startByte) {
-          stream.destroy(new Error(`Server returned mismatched Content-Range "${contentRange}"`));
+          rangeMismatch = new Error(`Server returned mismatched Content-Range "${contentRange}"`);
+          stream.destroy(rangeMismatch);
           return;
         }
         const total = m[3] === "*" ? null : parseInt(m[3], 10);
         totalBytes = total ?? (startByte + contentLength);
       } else { totalBytes = startByte + contentLength; }
     } else {
+      // Server ignored the Range header → restart from byte 0. Truncate the
+      // partial file by switching to write mode; pipeline() will overwrite.
       totalBytes = contentLength;
       if (startByte > 0) { startByte = 0; downloadedBytes = 0; lastBytes = 0; writeMode = "w"; }
     }
@@ -146,8 +156,11 @@ async function attemptDownload(url: string, partialPath: string, label?: string)
     barStarted = true;
   });
 
-  stream.on("data", (chunk: Buffer) => {
-    downloadedBytes += chunk.length;
+  // got emits downloadProgress with { transferred, total, percent } without
+  // putting the readable into flowing mode, so we keep accurate progress
+  // without competing with pipeline()'s consumption of the stream.
+  stream.on("downloadProgress", (progress: { transferred: number; total?: number }) => {
+    downloadedBytes = startByte + progress.transferred;
     const now = Date.now();
     const elapsed = (now - lastTime) / 1000;
     if (elapsed >= 0.5) {
@@ -165,9 +178,12 @@ async function attemptDownload(url: string, partialPath: string, label?: string)
   });
 
   try {
+    // Wait for headers so writeMode is correct before we open the file.
     await new Promise<void>((resolve, reject) => {
-      stream.once("response", () => resolve()); stream.once("error", reject);
+      stream.once("response", () => resolve());
+      stream.once("error", reject);
     });
+    if (rangeMismatch) throw rangeMismatch;
     const fileStream = createWriteStream(partialPath, { flags: writeMode });
     await pipeline(stream, fileStream);
   } catch (err) { if (barStarted) bar.stop(); throw err; }

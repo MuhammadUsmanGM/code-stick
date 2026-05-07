@@ -13,7 +13,7 @@ const processes: Map<string, ChildProcess> = new Map();
 const TERM_GRACE_MS = 8_000;
 const HARD_CAP_MS = 15_000;
 
-function registerProcess(name: string, proc: ChildProcess): void {
+export function registerProcess(name: string, proc: ChildProcess): void {
   const existing = processes.get(name);
   if (existing && existing.exitCode === null && !existing.killed) {
     try { proc.kill("SIGKILL"); } catch { /* ignore */ }
@@ -23,7 +23,7 @@ function registerProcess(name: string, proc: ChildProcess): void {
   proc.once("exit", () => { if (processes.get(name) === proc) processes.delete(name); });
 }
 
-function killProcess(name: string): Promise<void> {
+export function killProcess(name: string): Promise<void> {
   return new Promise((resolve) => {
     const proc = processes.get(name);
     if (!proc || !proc.pid) { resolve(); return; }

@@ -77,8 +77,17 @@ export async function detectUSBDrives(): Promise<DriveChoice[]> {
 export function looksLikeSystemPath(p: string): string | null {
   const norm = path.resolve(p).replace(/[\\/]+$/, "") || path.resolve(p);
   if (process.platform === "win32") {
-    if (/^[a-z]:\\?$/i.test(norm) || /^[a-z]:$/i.test(norm)) {
-      return `Refusing to install at a drive root (${p}). Choose a subdirectory.`;
+    // Drive roots (E:\, F:\, ...) are the canonical USB install target — the
+    // launcher templates rely on USB_ROOT being the drive root. Only block the
+    // drive that actually hosts Windows (system drive).
+    const driveLetterMatch = norm.match(/^([a-z]):$/i);
+    if (driveLetterMatch) {
+      const sysRoot = process.env.SystemRoot || "C:\\Windows";
+      const sysDrive = sysRoot.match(/^([a-z]):/i)?.[1]?.toLowerCase();
+      if (sysDrive && driveLetterMatch[1].toLowerCase() === sysDrive) {
+        return `Refusing to install at the system drive root (${p}). Pick a USB drive.`;
+      }
+      return null;
     }
     const sysRoot = process.env.SystemRoot || "C:\\Windows";
     const programFiles = process.env["ProgramFiles"] || "C:\\Program Files";
