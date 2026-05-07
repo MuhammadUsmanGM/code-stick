@@ -33,9 +33,13 @@ export async function statusCommand(opts: StatusOptions): Promise<void> {
   log.blank();
   log.info(`Models (${manifest.models.length}):`);
   const def = defaultModel(manifest);
-  for (const m of manifest.models) {
-    const star = m.id === def.id ? "★" : " ";
-    log.dim(`  ${star} ${m.tag.padEnd(28)} (${m.id})`);
+  if (!def) {
+    log.dim("  (none — run `code-stick add-model` to install one)");
+  } else {
+    for (const m of manifest.models) {
+      const star = m.id === def.id ? "★" : " ";
+      log.dim(`  ${star} ${m.tag.padEnd(28)} (${m.id})`);
+    }
   }
 
   const p = usbPaths(drivePath);

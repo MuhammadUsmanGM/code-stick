@@ -34,9 +34,23 @@ if [ ! -f "$OPENCODE_BIN" ]; then
   exit 1
 fi
 if [ ! -x "$OLLAMA_BIN" ] || [ ! -x "$OPENCODE_BIN" ]; then
-  echo "[code-stick] Binaries are not executable — likely a FAT/exFAT USB."
-  echo "[code-stick] Mount with exec perms, or run: bash \"$0\""
-  echo "[code-stick] (or copy <USB>/engine and <USB>/opencode to ~/.local for one-time use)"
+  echo "[code-stick] Binaries are not executable (exec bit lost — typical for FAT32/exFAT USBs)."
+  # `bash "$0"` does NOT fix this — the script still tries to execve the
+  # binary and hits ENOEXEC. The two real fixes:
+  MOUNT_DEV="$(findmnt -no SOURCE --target "$USB_ROOT" 2>/dev/null || true)"
+  MOUNT_POINT="$(findmnt -no TARGET --target "$USB_ROOT" 2>/dev/null || true)"
+  echo
+  echo "  Option 1 (recommended): remount the USB with exec perms."
+  if [ -n "$MOUNT_DEV" ] && [ -n "$MOUNT_POINT" ]; then
+    echo "    sudo mount -o remount,exec,uid=$(id -u),gid=$(id -g) \"$MOUNT_DEV\" \"$MOUNT_POINT\""
+  else
+    echo "    sudo mount -o remount,exec <device> <mountpoint>"
+  fi
+  echo
+  echo "  Option 2: copy the binaries to a real filesystem (~/.local/bin) and run from there."
+  echo "    cp \"$OLLAMA_BIN\" \"$OPENCODE_BIN\" ~/.local/bin/ && chmod +x ~/.local/bin/{ollama,opencode}"
+  echo
+  echo "  For long-term use, format the stick as NTFS or ext4 instead of FAT/exFAT."
   exit 1
 fi
 

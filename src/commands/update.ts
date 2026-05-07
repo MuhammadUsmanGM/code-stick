@@ -27,7 +27,11 @@ export async function updateCommand(opts: UpdateOptions): Promise<void> {
 
   const def = defaultModel(manifest);
   writeOpencodeConfig(drivePath, manifest);
-  renderLaunchers(drivePath, { modelTag: def.tag });
+  if (def) {
+    renderLaunchers(drivePath, { modelTag: def.tag });
+  } else {
+    log.warn("No default model on this stick — skipping launcher render. Run `code-stick add-model` first.");
+  }
   manifest.updatedAt = new Date().toISOString();
   saveManifest(drivePath, manifest);
 

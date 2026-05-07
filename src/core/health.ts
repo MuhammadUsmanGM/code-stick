@@ -32,3 +32,35 @@ function hasAnyFile(root: string): boolean {
   }
   return false;
 }
+
+/**
+ * Resolve the ollama manifest path for a given tag (e.g. "qwen2.5-coder:7b").
+ * Ollama stores library models under
+ *   <data>/manifests/registry.ollama.ai/library/<model>/<tag>
+ * and namespaced models under
+ *   <data>/manifests/registry.ollama.ai/<namespace>/<model>/<tag>.
+ */
+export function ollamaTagManifestPath(dataDir: string, tag: string): string {
+  const [name, version = "latest"] = tag.split(":");
+  const slashes = name.split("/");
+  const namespace = slashes.length > 1 ? slashes[0] : "library";
+  const model = slashes.length > 1 ? slashes.slice(1).join("/") : name;
+  return path.join(
+    dataDir, "manifests", "registry.ollama.ai", namespace, model, version,
+  );
+}
+
+/**
+ * True when ollama has the manifest for `tag` on disk. Doesn't validate the
+ * referenced blobs — `inspectOllamaData` already covers global blob presence,
+ * and a manifest-without-blobs is exotic enough that we'd rather fail at pull
+ * time with ollama's own error than reimplement its blob walker here.
+ */
+export function hasOllamaTagManifest(dataDir: string, tag: string): boolean {
+  try {
+    const p = ollamaTagManifestPath(dataDir, tag);
+    return fs.statSync(p).isFile();
+  } catch {
+    return false;
+  }
+}

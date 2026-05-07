@@ -8,13 +8,49 @@ import { log } from "../utils/logger.js";
 export async function extractZipFile(zipPath: string, destDir: string): Promise<void> {
   fs.mkdirSync(destDir, { recursive: true });
   const resolvedDest = path.resolve(destDir);
+  // extract-zip already rejects entries that resolve outside `dir` (CVE-2018-1002204
+  // hardening), so we just hand it a fully-resolved destination.
   await extractZip(zipPath, { dir: resolvedDest });
   log.dim(`Extracted ${path.basename(zipPath)}`);
 }
 
 export async function extractTarFile(tarPath: string, destDir: string): Promise<void> {
   fs.mkdirSync(destDir, { recursive: true });
-  await tar.x({ file: tarPath, cwd: destDir, strip: 0 });
+  const resolvedDest = path.resolve(destDir);
+  // Path-traversal hardening: a malicious or corrupted tar could carry entries
+  // like "../../etc/passwd". node-tar already strips leading "/" and resolves
+  // "..", but we belt-and-brace it:
+  //   - filter:  drop any entry whose path resolves outside destDir or contains
+  //              ".." segments
+  //   - strict:  treat unrecognized headers as errors instead of silently
+  //              skipping them
+  //   - onwarn:  surface tar's own complaints so we don't paper over a broken
+  //              archive
+  let aborted: string | null = null;
+  await tar.x({
+    file: tarPath,
+    cwd: resolvedDest,
+    strip: 0,
+    strict: true,
+    filter: (entryPath) => {
+      if (entryPath.split(/[\\/]/).some((seg) => seg === "..")) {
+        aborted ??= `archive contains path with '..' segment: ${entryPath}`;
+        return false;
+      }
+      const target = path.resolve(resolvedDest, entryPath);
+      if (target !== resolvedDest && !target.startsWith(resolvedDest + path.sep)) {
+        aborted ??= `archive entry escapes destination: ${entryPath}`;
+        return false;
+      }
+      return true;
+    },
+    onwarn: (code, message) => {
+      log.warn(`tar warning [${code}]: ${message}`);
+    },
+  });
+  if (aborted) {
+    throw new Error(`Refused to extract ${path.basename(tarPath)}: ${aborted}`);
+  }
   log.dim(`Extracted ${path.basename(tarPath)}`);
 }
 

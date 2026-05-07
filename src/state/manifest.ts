@@ -65,7 +65,11 @@ export function loadManifest(drivePath: string): Manifest | null {
 
   if (obj.version !== "2") return null;
   const m = obj as unknown as Manifest;
-  if (!Array.isArray(m.models) || m.models.length === 0 || !m.defaultModelId) return null;
+  // An empty `models` array is a legitimate state — `code-stick remove-model
+  // --force` of the last model leaves the manifest in this shape until the
+  // user runs add-model again. Reject only the truly malformed cases.
+  if (!Array.isArray(m.models)) return null;
+  if (typeof m.defaultModelId !== "string") return null;
   if (!Array.isArray(m.targets)) return null;
   if (typeof m.installedAt !== "string" || Number.isNaN(Date.parse(m.installedAt))) m.installedAt = "";
   if (m.updatedAt !== undefined) {
@@ -144,10 +148,11 @@ export function saveManifest(drivePath: string, manifest: Manifest): void {
   }
 }
 
-export function defaultModel(manifest: Manifest): ManifestModel {
+export function defaultModel(manifest: Manifest): ManifestModel | null {
+  if (manifest.models.length === 0) return null;
   const m = manifest.models.find((x) => x.id === manifest.defaultModelId);
   if (!m) {
-    // Manifest claimed a default that doesn't exist — fall back to first.
+    // Manifest claims a default that doesn't exist — fall back to first.
     return manifest.models[0];
   }
   return m;

@@ -8,7 +8,7 @@ import { hostTarget } from "../utils/platform.js";
 import { ollamaBinaryRel } from "../catalog/ollama.js";
 import { opencodeBinaryRel } from "../catalog/opencode.js";
 import { loadManifest, defaultModel } from "../state/manifest.js";
-import { inspectOllamaData } from "../core/health.js";
+import { inspectOllamaData, hasOllamaTagManifest } from "../core/health.js";
 import {
   startOllama, waitForOllama, runOpencodeForeground,
   stopAll, setupShutdownHooks, checkPortFree,
@@ -56,6 +56,20 @@ export async function startCommand(opts: StartOptions): Promise<void> {
   await checkPortFree();
 
   const def = defaultModel(manifest);
+  if (!def) {
+    log.error("This stick has no models. Add one before launching:");
+    log.info(`  code-stick add-model --target "${drivePath}"`);
+    process.exit(1);
+  }
+  // The manifest says we have this tag; verify ollama actually has its
+  // manifest blob on disk. Catches the case where blobs/ exists from another
+  // model but the default model's tag was never fully pulled (or got removed
+  // on disk while remaining in the JSON manifest).
+  if (!hasOllamaTagManifest(p.data, def.tag)) {
+    log.error(`Default model "${def.tag}" is in the manifest but its ollama tag is missing from the model store.`);
+    log.info(`Re-pull it: code-stick add-model ${def.id} --target "${drivePath}"`);
+    process.exit(1);
+  }
   const otherCount = manifest.models.length - 1;
   log.info(`Model: ${def.tag}${otherCount > 0 ? ` (+${otherCount} other on stick)` : ""}`);
   log.dim("Starting Ollama from USB...");

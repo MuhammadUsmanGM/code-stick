@@ -61,17 +61,66 @@ async function loadDrivelist(): Promise<DrivelistApi | null> {
 
 export async function detectUSBDrives(): Promise<DriveChoice[]> {
   const dl = await loadDrivelist();
-  if (!dl) return [];
-  const drives = await dl.list();
-  const removable = drives.filter(
-    (d) => d.isRemovable && d.mountpoints.length > 0 && d.size
-  );
-  return removable.map((d) => {
-    const mount = d.mountpoints[0].path;
-    const sizeGB = ((d.size || 0) / 1e9).toFixed(1);
-    const label = d.mountpoints[0].label || d.description || "USB Drive";
-    return { name: `${mount} — ${label} [${sizeGB} GB]`, value: mount };
-  });
+  if (dl) {
+    const drives = await dl.list();
+    const removable = drives.filter(
+      (d) => d.isRemovable && d.mountpoints.length > 0 && d.size
+    );
+    return removable.map((d) => {
+      const mount = d.mountpoints[0].path;
+      const sizeGB = ((d.size || 0) / 1e9).toFixed(1);
+      const label = d.mountpoints[0].label || d.description || "USB Drive";
+      return { name: `${mount} — ${label} [${sizeGB} GB]`, value: mount };
+    });
+  }
+  // drivelist failed (typical on Windows hosts without VS Build Tools).
+  // Fall back to a per-platform native enumerator that doesn't need any
+  // compiled bindings. Keeps auto-detection working on a stock Node install.
+  return detectUSBDrivesNative();
+}
+
+/**
+ * Drivelist-less USB enumeration. Currently implemented for Windows; macOS
+ * and Linux still rely on drivelist (which builds reliably there because
+ * the prebuilt addons cover those platforms or build tools are usually
+ * present). Returns [] when the platform isn't supported.
+ */
+function detectUSBDrivesNative(): DriveChoice[] {
+  if (process.platform !== "win32") return [];
+  try {
+    // Win32_LogicalDisk DriveType=2 → removable. Returns one row per drive
+    // letter; we project the columns we need as JSON for parsing.
+    const out = execFileSync(
+      "powershell",
+      [
+        "-NoProfile", "-NonInteractive", "-Command",
+        "Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=2' | " +
+        "Select-Object DeviceID,VolumeName,Size | ConvertTo-Json -Compress",
+      ],
+      { encoding: "utf8", windowsHide: true, timeout: 8000 },
+    );
+    const trimmed = out.trim();
+    if (!trimmed) return [];
+    type Row = { DeviceID: string; VolumeName?: string | null; Size?: number | null };
+    const rows: Row[] = (() => {
+      const parsed = JSON.parse(trimmed);
+      return Array.isArray(parsed) ? parsed : [parsed];
+    })();
+    const result: DriveChoice[] = [];
+    for (const r of rows) {
+      if (!r?.DeviceID) continue;
+      const mount = r.DeviceID.endsWith("\\") ? r.DeviceID : `${r.DeviceID}\\`;
+      const sizeGB = r.Size ? (r.Size / 1e9).toFixed(1) : "?";
+      const label = r.VolumeName || "USB Drive";
+      result.push({ name: `${mount} — ${label} [${sizeGB} GB]`, value: mount });
+    }
+    return result;
+  } catch (err) {
+    if (process.env.CODE_STICK_DEBUG === "1") {
+      log.dim(`Native USB enumeration failed: ${(err as Error).message}`);
+    }
+    return [];
+  }
 }
 
 export function looksLikeSystemPath(p: string): string | null {

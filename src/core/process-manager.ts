@@ -13,11 +13,23 @@ const processes: Map<string, ChildProcess> = new Map();
 const TERM_GRACE_MS = 8_000;
 const HARD_CAP_MS = 15_000;
 
+/**
+ * Register a child process under `name`. Idempotent: if a previous entry
+ * exists but has already exited, it's silently replaced. If a previous entry
+ * is still alive, we kill it (and its tree) before taking over the slot —
+ * this matters when a previous `withTempOllama` aborted before its `finally`
+ * could call `killProcess`, leaving a stale entry that would otherwise block
+ * the next ollama spawn forever.
+ */
 export function registerProcess(name: string, proc: ChildProcess): void {
   const existing = processes.get(name);
-  if (existing && existing.exitCode === null && !existing.killed) {
-    try { proc.kill("SIGKILL"); } catch { /* ignore */ }
-    throw new Error(`Process "${name}" is already running (pid ${existing.pid}).`);
+  if (existing) {
+    const stillAlive = existing.exitCode === null && existing.signalCode === null && !existing.killed;
+    if (stillAlive && existing.pid && existing.pid !== proc.pid) {
+      log.warn(`Process "${name}" already had a registered pid ${existing.pid}; killing stale process before re-registering.`);
+      treeKill(existing.pid, "SIGKILL", () => { /* best-effort */ });
+    }
+    processes.delete(name);
   }
   processes.set(name, proc);
   proc.once("exit", () => { if (processes.get(name) === proc) processes.delete(name); });

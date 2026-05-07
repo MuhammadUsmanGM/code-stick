@@ -27,7 +27,10 @@ export function writeOpencodeConfig(drivePath: string, manifest: Manifest): void
   }
 
   const def = defaultModel(manifest);
-  const config = {
+  // Empty stick (last model just removed) → write a config without a default
+  // model. opencode treats `model` as optional; the user picks a provider on
+  // first launch. Once they `code-stick add-model`, this gets re-rendered.
+  const config: Record<string, unknown> = {
     $schema: "https://opencode.ai/config.json",
     autoupdate: false,
     provider: {
@@ -38,8 +41,8 @@ export function writeOpencodeConfig(drivePath: string, manifest: Manifest): void
         models,
       },
     },
-    model: `ollama/${def.tag}`,
   };
+  if (def) config.model = `ollama/${def.tag}`;
 
   fs.writeFileSync(
     path.join(dir, "opencode.json"),

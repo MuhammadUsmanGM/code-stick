@@ -61,6 +61,11 @@ export async function removeModelCommand(modelId: string | undefined, opts: Remo
       modelTag: manifest.models.find((m) => m.id === manifest.defaultModelId)?.tag ?? manifest.models[0].tag,
     });
   } else {
+    // Stick is now empty. Clear defaultModelId so consumers (start, status,
+    // launcher-gen) can detect the empty state explicitly instead of
+    // following a dangling pointer to a removed model.
+    manifest.defaultModelId = "";
+    writeOpencodeConfig(drivePath, manifest);
     log.warn("Stick now has no models — run `code-stick add-model` before next launch.");
   }
   manifest.updatedAt = new Date().toISOString();

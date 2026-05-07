@@ -65,7 +65,27 @@ export async function copyDirWithProgress(
     for (const d of dirs) fs.mkdirSync(d, { recursive: true });
 
     for (const f of files) {
-      fs.copyFileSync(f.src, f.dest);
+      // Skip files that already match by size — protects re-runs after a USB
+      // unplug/ENOSPC: anything fully copied last time is preserved.
+      try {
+        const st = fs.statSync(f.dest);
+        if (st.isFile() && st.size === f.size) {
+          copiedBytes += f.size;
+          continue;
+        }
+      } catch { /* dest doesn't exist yet — normal first-pass case */ }
+      // Atomic file write: stage as <dest>.partial, fsync, then rename. If
+      // the user unplugs the USB or hits ENOSPC mid-copy, only a .partial
+      // file remains — Ollama never sees a torn blob, and a re-run will
+      // overwrite the partial with a fresh copy.
+      const stagePath = `${f.dest}.partial`;
+      try { fs.unlinkSync(stagePath); } catch { /* not present, that's fine */ }
+      fs.copyFileSync(f.src, stagePath);
+      try {
+        const fd = fs.openSync(stagePath, "r+");
+        try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      } catch { /* fsync best-effort: FAT/exFAT may not support it */ }
+      fs.renameSync(stagePath, f.dest);
       copiedBytes += f.size;
 
       const now = Date.now();

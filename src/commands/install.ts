@@ -56,6 +56,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   let drivePath = "";
   let model: CodingModel | undefined;
   let installMode: InstallMode = "slow";
+  let isReinstall = false;
 
   while (step !== "done") {
     if (step === "drive") {
@@ -80,6 +81,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
           continue; // re-open drive picker
         }
         if (!ans.proceed) { log.info("Cancelled."); return; }
+        isReinstall = true;
       }
       step = "model";
       continue;
@@ -198,6 +200,22 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
 
   const p = usbPaths(drivePath);
   const tempDir = path.join(drivePath, ".code-stick-tmp");
+
+  // Re-install: drop the old ollama model store and opencode provider cache.
+  // Without this, blobs from the previous default model linger forever (the
+  // new manifest only references one model, so `code-stick remove-model` can't
+  // reach them), eating GBs on the stick. Config is regenerated from scratch
+  // below so it's safe to wipe too.
+  if (isReinstall) {
+    log.dim("Removing old model store and caches before fresh install...");
+    for (const dir of [p.data, p.cache, p.state, path.join(drivePath, "config", "opencode")]) {
+      try { fs.rmSync(dir, { recursive: true, force: true }); }
+      catch (err) {
+        log.warn(`Could not remove ${dir}: ${(err as Error).message}`);
+      }
+    }
+  }
+
   fs.mkdirSync(tempDir, { recursive: true });
   fs.mkdirSync(p.data, { recursive: true });
   fs.mkdirSync(p.config, { recursive: true });

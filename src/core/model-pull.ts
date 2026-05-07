@@ -74,11 +74,20 @@ export async function pullModelTag(
   tag: string,
   dataDirOverride?: string,
 ): Promise<void> {
-  await withTempOllama(drivePath, async (bin, env) => {
-    log.info(`Running ollama pull ${tag} (this can take a while)...`);
-    await runOllama(bin, env, ["pull", tag]);
-    log.success(`Model ${tag} stored`);
-  }, dataDirOverride);
+  const dataDir = dataDirOverride ?? usbPaths(drivePath).data;
+  try {
+    await withTempOllama(drivePath, async (bin, env) => {
+      log.info(`Running ollama pull ${tag} (this can take a while)...`);
+      await runOllama(bin, env, ["pull", tag]);
+      log.success(`Model ${tag} stored`);
+    }, dataDirOverride);
+  } catch (err) {
+    // The temp server is killed (tree-kill SIGTERM with grace) before this
+    // catch fires; if `ollama pull` was mid-write, partial blob files may
+    // remain in <data>/blobs/. Sweep them so the next pull starts clean.
+    cleanPartialBlobs(dataDir);
+    throw err;
+  }
 }
 
 export async function removeModelTag(drivePath: string, tag: string): Promise<void> {
@@ -87,4 +96,26 @@ export async function removeModelTag(drivePath: string, tag: string): Promise<vo
     await runOllama(bin, env, ["rm", tag], "ignore");
     log.success(`Removed ${tag} from USB store`);
   });
+}
+
+/**
+ * Remove any leftover partial blob files from the Ollama store. Ollama writes
+ * blobs as `sha256-<hex>-partial` (and `*.partial-<n>` chunks on resumable
+ * pulls) while downloading; an aborted pull leaves those behind. They aren't
+ * referenced by any manifest so they're safe to delete unconditionally.
+ */
+function cleanPartialBlobs(dataDir: string): void {
+  const blobsDir = path.join(dataDir, "blobs");
+  if (!fs.existsSync(blobsDir)) return;
+  let removed = 0;
+  try {
+    for (const name of fs.readdirSync(blobsDir)) {
+      if (!/-partial(?:-\d+)?$/.test(name)) continue;
+      try {
+        fs.rmSync(path.join(blobsDir, name), { force: true });
+        removed++;
+      } catch { /* ignore */ }
+    }
+  } catch { /* ignore */ }
+  if (removed > 0) log.dim(`Cleaned ${removed} partial blob(s) from ${blobsDir}`);
 }
