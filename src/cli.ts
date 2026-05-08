@@ -7,6 +7,7 @@ import { startCommand } from "./commands/start.js";
 import { statusCommand } from "./commands/status.js";
 import { updateCommand } from "./commands/update.js";
 import { upgradeEngineCommand } from "./commands/upgrade-engine.js";
+import { doctorCommand } from "./commands/doctor.js";
 import { addModelCommand } from "./commands/add-model.js";
 import { removeModelCommand } from "./commands/remove-model.js";
 import { uninstallCommand } from "./commands/uninstall.js";
@@ -49,6 +50,13 @@ async function main() {
     .description("Refresh launcher scripts and manifest timestamp")
     .option("-t, --target <path>", "Update this installation directory")
     .action(async (opts) => { await updateCommand(opts); });
+
+  program
+    .command("doctor")
+    .description("Live audit of an installed stick (filesystem, port, ollama, opencode, models)")
+    .option("-t, --target <path>", "Audit this installation directory")
+    .option("--no-probe", "Skip live ollama serve / opencode --version probes (static checks only)")
+    .action(async (opts) => { await doctorCommand(opts); });
 
   program
     .command("upgrade-engine")

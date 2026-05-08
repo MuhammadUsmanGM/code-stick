@@ -93,7 +93,11 @@ export async function checkPortFree(): Promise<void> {
       );
     }
     // Bound but not Ollama (non-2xx response) — definitely another process.
-    throw new Error("Port 11434 is already in use by another process.");
+    throw new Error(
+      "Port 11434 is already in use by another process. " +
+      "Find the listener: `lsof -i :11434` (POSIX) or `Get-NetTCPConnection -LocalPort 11434` (Windows). " +
+      "Stop it and retry."
+    );
   } catch (err) {
     if (err instanceof Error && err.message.startsWith("Port 11434 is already in use")) throw err;
     const isAbort = err instanceof Error && (err.name === "AbortError" || /aborted/i.test(err.message));
@@ -105,11 +109,15 @@ export async function checkPortFree(): Promise<void> {
     }
     // Any other fetch failure (ECONNRESET, parse error, etc.) — port is bound
     // but the process isn't speaking HTTP cleanly. Treat as another process.
-    throw new Error("Port 11434 is already in use by another process.");
+    throw new Error(
+      "Port 11434 is already in use by another process. " +
+      "Find the listener: `lsof -i :11434` (POSIX) or `Get-NetTCPConnection -LocalPort 11434` (Windows). " +
+      "Stop it and retry."
+    );
   }
 }
 
-function isPortInUse(port: number, host = "127.0.0.1"): Promise<boolean> {
+export function isPortInUse(port: number, host = "127.0.0.1"): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = new net.Socket();
     let settled = false;

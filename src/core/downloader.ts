@@ -88,7 +88,10 @@ export async function download(opts: DownloadOptions): Promise<void> {
         lastErr = err;
         const msg = err instanceof Error ? err.message : String(err);
         if (isENOSPC(err)) {
-          throw new Error(`Out of disk space while downloading ${displayName}. Free space and resume.`);
+          throw new Error(
+            `Out of disk space while downloading ${displayName}. ` +
+            `Free up space on the download target and re-run — the partial download will resume from where it stopped.`
+          );
         }
         if (isHardMirrorFailure(err)) {
           log.warn(`Mirror unreachable (${msg}) — switching mirror.`); continue outer;
@@ -104,7 +107,10 @@ export async function download(opts: DownloadOptions): Promise<void> {
 
   if (!succeeded) {
     const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
-    throw new Error(`Download failed for ${displayName}: ${msg}. Re-run to resume.`);
+    throw new Error(
+      `Download failed for ${displayName}: ${msg}. ` +
+      "Check your network (corporate proxy / firewall blocking github.com or ollama.com?) and re-run — the partial will resume."
+    );
   }
 
   if (hashLooksReal) {
@@ -113,7 +119,10 @@ export async function download(opts: DownloadOptions): Promise<void> {
     if (hash !== expectedHash) {
       fs.unlinkSync(partialPath);
       safeUnlink(partialMetaPath, "partial metadata");
-      throw new Error("Downloaded file hash mismatch — file deleted. Try again.");
+      throw new Error(
+        `Downloaded file hash mismatch for ${displayName} — corrupt download or stale catalog hash. ` +
+        "The partial file has been deleted. Re-run; if it persists, run `npm run hashes:bump` against the catalog and report at github.com/MuhammadUsmanGM/code-stick/issues."
+      );
     }
   }
   fs.renameSync(partialPath, dest);

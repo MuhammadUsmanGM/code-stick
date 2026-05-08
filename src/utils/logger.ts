@@ -1,6 +1,7 @@
 // Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a
 import chalk from "chalk";
 import { SingleBar, Presets } from "cli-progress";
+import { logToInstall } from "./install-log.js";
 
 declare const PKG_VERSION: string | undefined;
 const version = typeof PKG_VERSION !== "undefined" ? PKG_VERSION : "dev";
@@ -101,13 +102,15 @@ export function createProgress(): ProgressReporter {
 }
 
 export const log = {
-  info: (msg: string) => console.log(chalk.cyan(`  ${msg}`)),
-  success: (msg: string) => console.log(chalk.green(`  ✓ ${msg}`)),
-  warn: (msg: string) => console.log(chalk.yellow(`  ⚠ ${msg}`)),
-  error: (msg: string) => console.error(chalk.red(`  ✗ ${msg}`)),
-  step: (n: number, total: number, msg: string) =>
-    console.log(chalk.white(`  [${n}/${total}] ${msg}`)),
-  dim: (msg: string) => console.log(chalk.dim(`    ${msg}`)),
+  info: (msg: string) => { console.log(chalk.cyan(`  ${msg}`)); logToInstall("info", msg); },
+  success: (msg: string) => { console.log(chalk.green(`  ✓ ${msg}`)); logToInstall("info", msg); },
+  warn: (msg: string) => { console.log(chalk.yellow(`  ⚠ ${msg}`)); logToInstall("warn", msg); },
+  error: (msg: string) => { console.error(chalk.red(`  ✗ ${msg}`)); logToInstall("error", msg); },
+  step: (n: number, total: number, msg: string) => {
+    console.log(chalk.white(`  [${n}/${total}] ${msg}`));
+    logToInstall("info", msg, { step: n, total });
+  },
+  dim: (msg: string) => { console.log(chalk.dim(`    ${msg}`)); logToInstall("dim", msg); },
   blank: () => console.log(),
   banner: (msg: string) => {
     console.log();

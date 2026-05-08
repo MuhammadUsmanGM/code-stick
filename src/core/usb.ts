@@ -44,7 +44,10 @@ async function loadDrivelist(): Promise<DrivelistApi | null> {
         return drivelistCache;
       }
     }
-    throw new Error("drivelist module loaded but `.list` is not a function");
+    throw new Error(
+      "drivelist module loaded but `.list` is not a function — likely a broken native build. " +
+      "Skip auto-detection by passing --target <path> explicitly, or rebuild with `npm rebuild drivelist`."
+    );
   } catch (err) {
     drivelistCache = null;
     if (!drivelistWarned) {
@@ -227,7 +230,12 @@ async function pickUSBDrive(): Promise<string | null> {
 /** Pick install destination. Returns null on top-level cancel. */
 export async function pickInstallDrive(targetOverride?: string): Promise<string | null> {
   if (targetOverride) {
-    if (!fs.existsSync(targetOverride)) throw new Error(`Target path does not exist: ${targetOverride}`);
+    if (!fs.existsSync(targetOverride)) {
+      throw new Error(
+        `Target path does not exist: ${targetOverride}. ` +
+        "Confirm the USB is mounted (Windows: check File Explorer; macOS/Linux: `df -h`) and pass the correct mount point."
+      );
+    }
     const sysReason = looksLikeSystemPath(targetOverride);
     if (sysReason) throw new Error(sysReason);
     const removable = await isOnRemovableDrive(targetOverride);
@@ -247,7 +255,12 @@ export async function pickInstallDrive(targetOverride?: string): Promise<string 
 /** Find an existing installation. */
 export async function pickDrive(targetOverride?: string): Promise<string> {
   if (targetOverride) {
-    if (!fs.existsSync(targetOverride)) throw new Error(`Target path does not exist: ${targetOverride}`);
+    if (!fs.existsSync(targetOverride)) {
+      throw new Error(
+        `Target path does not exist: ${targetOverride}. ` +
+        "Confirm the USB is mounted (Windows: check File Explorer; macOS/Linux: `df -h`) and pass the correct mount point."
+      );
+    }
     const sysReason = looksLikeSystemPath(targetOverride);
     if (sysReason) throw new Error(sysReason);
     return targetOverride;
@@ -292,12 +305,24 @@ export function freeGBFromStats(stats: fs.StatsFsBase<number>): number | null {
 
 export function assertDriveReady(drivePath: string): void {
   if (!fs.existsSync(drivePath)) {
-    throw new Error(`Target drive ${drivePath} is not available. Reattach and re-run install.`);
+    throw new Error(
+      `Target drive ${drivePath} is not available — looks like it was unplugged or unmounted. ` +
+      "Reattach the USB and re-run the same command."
+    );
   }
   let stat: fs.Stats;
   try { stat = fs.statSync(drivePath); }
-  catch (err) { throw new Error(`Cannot access ${drivePath}: ${(err as Error).message}`); }
-  if (!stat.isDirectory()) throw new Error(`Target ${drivePath} is not a directory.`);
+  catch (err) {
+    throw new Error(
+      `Cannot access ${drivePath}: ${(err as Error).message}. ` +
+      "Permission denied? Try running from a shell with read access to the mount point, or remount the drive."
+    );
+  }
+  if (!stat.isDirectory()) {
+    throw new Error(
+      `Target ${drivePath} is not a directory. Pass the USB mount point (e.g. \`E:\\\` or \`/Volumes/USB\`), not a file inside it.`
+    );
+  }
   const probe = path.join(drivePath, `.code-stick-probe-${process.pid}`);
   try { fs.writeFileSync(probe, "ok"); }
   catch (err) {

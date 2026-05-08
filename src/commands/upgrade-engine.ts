@@ -13,6 +13,7 @@ import { setupShutdownHooks, registerCleanup } from "../core/process-manager.js"
 import { stageAndSwapBinaries } from "../core/engine-staging.js";
 import { postInstallCleanup } from "../core/cleanup.js";
 import { promptWithEsc } from "../utils/prompt.js";
+import { openInstallLog, closeInstallLog } from "../utils/install-log.js";
 
 interface UpgradeEngineOptions {
   target?: string;
@@ -45,6 +46,8 @@ export async function upgradeEngineCommand(opts: UpgradeEngineOptions): Promise<
 
   const drivePath = await pickDrive(opts.target);
   assertDriveReady(drivePath);
+  openInstallLog(drivePath, "upgrade-engine");
+  try {
 
   const manifest = loadManifest(drivePath);
   if (!manifest) {
@@ -111,4 +114,7 @@ export async function upgradeEngineCommand(opts: UpgradeEngineOptions): Promise<
   log.info(`Ollama: ${manifest.ollamaVersions.host} (linux ${manifest.ollamaVersions.linux})`);
   log.info(`opencode: ${manifest.opencodeVersion}`);
   log.dim(`${modelCount} model(s) preserved in <USB>/data`);
+  } finally {
+    closeInstallLog();
+  }
 }

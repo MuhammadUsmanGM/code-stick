@@ -185,7 +185,9 @@ function acquireManifestLock(lockPath: string): void {
       }
       if (Date.now() > deadline) {
         throw new Error(
-          `Could not acquire manifest lock (${lockPath}) within ${LOCK_TIMEOUT_MS}ms.`
+          `Could not acquire manifest lock (${lockPath}) within ${LOCK_TIMEOUT_MS}ms — ` +
+          `another code-stick run is in progress on the same USB. ` +
+          `If no other process is running, delete the lock file manually and re-run: \`rm "${lockPath}"\`.`
         );
       }
       sleepSync(100);

@@ -6,6 +6,7 @@ import { promptWithEsc } from "../utils/prompt.js";
 import { pickDrive, assertDriveReady } from "../core/usb.js";
 import { usbPaths } from "../utils/paths.js";
 import { loadManifest } from "../state/manifest.js";
+import { openInstallLog, closeInstallLog } from "../utils/install-log.js";
 
 interface UninstallOptions {
   target?: string;
@@ -27,6 +28,10 @@ export async function uninstallCommand(opts: UninstallOptions): Promise<void> {
 
   const drivePath = await pickDrive(opts.target);
   assertDriveReady(drivePath);
+  openInstallLog(drivePath, "uninstall");
+  // No try/finally here: uninstall *deletes* <USB>/state/install.log along with
+  // everything else. Best we can do is record the intent before the wipe so a
+  // half-finished uninstall (e.g. permissions error mid-rmSync) leaves a trail.
 
   const manifest = loadManifest(drivePath);
   if (manifest) {
@@ -66,6 +71,12 @@ export async function uninstallCommand(opts: UninstallOptions): Promise<void> {
   const p = usbPaths(drivePath);
   const before = directorySize(drivePath, REMOVE_DIRS);
   let removedBytes = 0;
+
+  // Close + flush the install log now — the very next loop deletes <USB>/state.
+  // Leaving the fd open across the rmSync would let stale buffered writes hit
+  // a directory we just removed, on filesystems that allow that (Linux), and
+  // throw on those that don't (Windows).
+  closeInstallLog("uninstall begin");
 
   for (const rel of REMOVE_DIRS) {
     const full = path.join(drivePath, rel);

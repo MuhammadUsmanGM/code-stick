@@ -82,7 +82,10 @@ export async function extractTarFile(tarPath: string, destDir: string): Promise<
     },
   });
   if (aborted) {
-    throw new Error(`Refused to extract ${path.basename(tarPath)}: ${aborted}`);
+    throw new Error(
+      `Refused to extract ${path.basename(tarPath)}: ${aborted}. ` +
+      "The archive may be corrupt or tampered with — re-run the install to re-download from the catalog mirrors."
+    );
   }
   log.dim(`Extracted ${path.basename(tarPath)}`);
 }

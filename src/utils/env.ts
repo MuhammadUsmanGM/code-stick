@@ -13,7 +13,10 @@ export function templatesDir(): string {
     path.join(__dirname, "..", "..", "templates"),
   ];
   for (const dir of candidates) if (fs.existsSync(dir)) return dir;
-  throw new Error("Templates directory not found");
+  throw new Error(
+    "Templates directory not found — code-stick install is missing its launcher templates. " +
+    "Reinstall the CLI: `npm install -g code-stick` or `npx code-stick@latest install`."
+  );
 }
 
 /** Hash verification can be temporarily disabled while the catalog is being

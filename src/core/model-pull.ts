@@ -27,7 +27,10 @@ async function withTempOllama<T>(
   const ollamaBin = path.join(p.engine(target), ollamaBinaryRel(target));
 
   if (!fs.existsSync(ollamaBin)) {
-    throw new Error(`Ollama binary missing for host target ${target}: ${ollamaBin}`);
+    throw new Error(
+      `Ollama binary missing for host target ${target}: ${ollamaBin}. ` +
+      `Run \`code-stick upgrade-engine --target "${drivePath}"\` to re-fetch the engine.`
+    );
   }
 
   const env: NodeJS.ProcessEnv = {
@@ -49,8 +52,18 @@ async function withTempOllama<T>(
 
   try {
     const ready = await waitForOllama(45_000);
-    if (!ready) throw new Error("Temporary Ollama server failed to come up.");
-    if (serverExited) throw new Error("Ollama server exited before request could start.");
+    if (!ready) {
+      throw new Error(
+        "Temporary Ollama server did not respond on http://127.0.0.1:11434/api/version within 45s. " +
+        `Run \`code-stick doctor --target "${drivePath}"\` to diagnose (likely: stale ollama process, wrong arch binary, or AV blocking).`
+      );
+    }
+    if (serverExited) {
+      throw new Error(
+        "Ollama process exited immediately after spawn. " +
+        `Run \`code-stick doctor --target "${drivePath}"\` and check that the host target binary matches your CPU arch.`
+      );
+    }
     return await fn(ollamaBin, env);
   } finally {
     log.dim("Stopping temporary Ollama server...");

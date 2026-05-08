@@ -48,7 +48,9 @@ Pick one at install time. Add more later with `code-stick add-model`.
 | `code-stick install`                     | Set up code-stick on a USB                                          |
 | `code-stick start`                       | Start opencode + Ollama from a USB                                  |
 | `code-stick status`                      | Show what's installed                                               |
+| `code-stick doctor`                      | Live audit (port + Ollama + opencode + model store)                 |
 | `code-stick update`                      | Refresh launchers + opencode config                                 |
+| `code-stick upgrade-engine`              | Re-download Ollama + opencode without nuking the model store        |
 | `code-stick add-model [id]`              | Pull another model onto the stick                                   |
 | `code-stick remove-model [id]`           | Remove a model from the stick                                       |
 | `code-stick uninstall`                   | Wipe code-stick from the stick (binaries, models, config, launchers)|

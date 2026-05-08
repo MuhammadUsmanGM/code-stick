@@ -8,6 +8,7 @@ import { removeModelTag } from "../core/model-pull.js";
 import { writeOpencodeConfig } from "../core/opencode-config.js";
 import { renderLaunchers } from "../core/launcher-gen.js";
 import { setupShutdownHooks, stopAll } from "../core/process-manager.js";
+import { openInstallLog, closeInstallLog } from "../utils/install-log.js";
 
 interface RemoveModelOptions {
   target?: string;
@@ -20,6 +21,8 @@ export async function removeModelCommand(modelId: string | undefined, opts: Remo
 
   const drivePath = await pickDrive(opts.target);
   assertDriveReady(drivePath);
+  openInstallLog(drivePath, "remove-model");
+  try {
 
   const manifest = loadManifest(drivePath);
   if (!manifest) {
@@ -72,6 +75,9 @@ export async function removeModelCommand(modelId: string | undefined, opts: Remo
   saveManifest(drivePath, manifest);
 
   log.success(`Removed ${entry.tag} from ${drivePath}`);
+  } finally {
+    closeInstallLog();
+  }
 }
 
 async function pickInstalledModel(
@@ -80,9 +86,13 @@ async function pickInstalledModel(
 ): Promise<string | null> {
   if (modelId) {
     const known = findModel(modelId);
-    if (!known) throw new Error(`Unknown model "${modelId}".`);
+    if (!known) {
+      const ids = installed.map((m) => m.id).join(", ");
+      throw new Error(`Unknown model "${modelId}". Installed: ${ids || "(none)"}. Run \`code-stick status\` to see what's on the stick.`);
+    }
     if (!installed.some((m) => m.id === modelId)) {
-      throw new Error(`Model ${modelId} is not installed on this stick.`);
+      const ids = installed.map((m) => m.id).join(", ");
+      throw new Error(`Model "${modelId}" is not installed on this stick. Installed: ${ids || "(none)"}.`);
     }
     return modelId;
   }

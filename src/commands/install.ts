@@ -21,6 +21,7 @@ import { writeOpencodeConfig } from "../core/opencode-config.js";
 import { copyDirWithProgress } from "../core/copy.js";
 import { prestageOpencodeProviders } from "../core/opencode-prestage.js";
 import { stageAndSwapBinaries } from "../core/engine-staging.js";
+import { openInstallLog, closeInstallLog } from "../utils/install-log.js";
 
 interface InstallOptions {
   target?: string;
@@ -53,12 +54,18 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   let model: CodingModel | undefined;
   let installMode: InstallMode = "slow";
   let isReinstall = false;
+  let logOpen = false;
 
+  try {
   while (step !== "done") {
     if (step === "drive") {
       const picked = await pickInstallDrive(opts.target);
       if (picked === null) { log.info("Cancelled."); return; }
       drivePath = picked;
+
+      // Open install log as soon as drivePath is known. From here on, every
+      // log.info/warn/error tees into <USB>/state/install.log automatically.
+      if (!logOpen) { openInstallLog(drivePath, "install"); logOpen = true; }
 
       const existing = loadManifest(drivePath);
       if (existing) {
@@ -306,6 +313,9 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   log.dim(`  Linux:    ./start-linux.sh`);
   log.dim("Or run: code-stick start");
   log.dim("Add another model later: code-stick add-model");
+  } finally {
+    if (logOpen) closeInstallLog();
+  }
 }
 
 /** Stage Ollama blobs on host SSD then copy to USB. Avoids USB read+write contention. */

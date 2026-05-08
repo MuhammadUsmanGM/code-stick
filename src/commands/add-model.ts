@@ -9,6 +9,7 @@ import { pullModelTag } from "../core/model-pull.js";
 import { writeOpencodeConfig } from "../core/opencode-config.js";
 import { renderLaunchers } from "../core/launcher-gen.js";
 import { setupShutdownHooks, stopAll } from "../core/process-manager.js";
+import { openInstallLog, closeInstallLog } from "../utils/install-log.js";
 
 interface AddModelOptions {
   target?: string;
@@ -21,6 +22,8 @@ export async function addModelCommand(modelId: string | undefined, opts: AddMode
 
   const drivePath = await pickDrive(opts.target);
   assertDriveReady(drivePath);
+  openInstallLog(drivePath, "add-model");
+  try {
 
   const manifest = loadManifest(drivePath);
   if (!manifest) {
@@ -42,7 +45,10 @@ export async function addModelCommand(modelId: string | undefined, opts: AddMode
   const requiredGB = Math.ceil(model.sizeGB + 1);
   const ok = await checkDiskSpace(drivePath, requiredGB);
   if (!ok) {
-    throw new Error(`Not enough free space on ${drivePath}. Need ~${requiredGB} GB for ${model.name}.`);
+    throw new Error(
+      `Not enough free space on ${drivePath} for ${model.name} (~${requiredGB} GB). ` +
+      `Free space (or remove an unused model with \`code-stick remove-model\`) and re-run.`
+    );
   }
 
   log.info(`Pulling ${model.tag} into USB store...`);
@@ -64,6 +70,9 @@ export async function addModelCommand(modelId: string | undefined, opts: AddMode
   log.success(`Added ${model.name} to ${drivePath}`);
   if (opts.setDefault) log.info(`Default model is now ${model.tag}`);
   else log.dim(`Default model still ${manifest.defaultModelId}. Pass --set-default to change.`);
+  } finally {
+    closeInstallLog();
+  }
 }
 
 async function pickModelExcluding(modelId: string | undefined, alreadyInstalled: string[]): Promise<CodingModel | null> {
