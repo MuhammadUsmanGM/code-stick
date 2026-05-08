@@ -15,9 +15,21 @@ import { log } from "../utils/logger.js";
  * apart on a fresh offline host.
  *
  * Mitigation: install the package now (we ARE online during `code-stick
- * install`), and seed `$XDG_CACHE_HOME/opencode/package.json` with the exact
- * literal version `"latest"` so opencode's short-circuit at
- * `parsed.dependencies[pkg] === version` fires before any `bun add` runs.
+ * install`), then rewrite `$XDG_CACHE_HOME/opencode/package.json` so
+ * `dependencies[pkg]` matches BOTH possible short-circuit specs opencode
+ * may compare against:
+ *   1. The literal `"latest"` (current opencode v0.4.x BunProc.install path).
+ *   2. The actual resolved semver (defensive: future opencode releases that
+ *      pass the resolved version into the equality check, or any caller that
+ *      passes a pinned `<pkg>@<semver>` spec).
+ *
+ * We can't satisfy both with a single string, so we ALSO write the resolved
+ * versions into a `_resolved` sidecar object opencode ignores, and then
+ * defensively pin `dependencies[pkg]` to `"latest"` (today's required value).
+ * Critically: we call this fn from install AND verify both the seed file
+ * and the on-disk node_modules version exist + match — so any future
+ * opencode upgrade that breaks the short-circuit assumption is caught by
+ * the catalog hash check, not by a silently-online first launch.
  */
 
 // The single dependency every code-stick install needs. opencode resolves
@@ -34,17 +46,20 @@ export interface PrestageResult {
 export function prestageOpencodeProviders(opencodeCacheDir: string): PrestageResult {
   fs.mkdirSync(opencodeCacheDir, { recursive: true });
 
-  // The literal string "latest" matches opencode's BunProc.install() default
-  // version arg (bun/index.ts:60). Storing the package list this way makes
-  // the parsed.dependencies[pkg] === version short-circuit at bun/index.ts:68
-  // fire on every subsequent launch — no `bun add`, no network.
-  const pkgJson: Record<string, unknown> = {
+  // Seed package.json with the literal "latest" before npm install so the
+  // file exists; npm itself will rewrite `dependencies[pkg]` to the resolved
+  // semver (`^1.2.3`) on save — we restore the literal "latest" AFTER install
+  // because that's what opencode's BunProc.install() short-circuit compares
+  // against (`parsed.dependencies[pkg] === version`, where version is the
+  // hardcoded "latest" arg). If opencode ever stops passing "latest", the
+  // catalog check will surface the drift.
+  const pkgJsonPath = path.join(opencodeCacheDir, "package.json");
+  const seedPkgJson: Record<string, unknown> = {
     name: "code-stick-opencode-cache",
     private: true,
     dependencies: Object.fromEntries(OPENCODE_NPM_PROVIDERS.map((p) => [p, "latest"])),
   };
-  const pkgJsonPath = path.join(opencodeCacheDir, "package.json");
-  fs.writeFileSync(pkgJsonPath, JSON.stringify(pkgJson, null, 2), "utf-8");
+  fs.writeFileSync(pkgJsonPath, JSON.stringify(seedPkgJson, null, 2), "utf-8");
 
   // Detect npm. The host running `code-stick install` has Node 20+, so npm is
   // present on PATH unless someone went out of their way to break it. On
@@ -93,16 +108,40 @@ export function prestageOpencodeProviders(opencodeCacheDir: string): PrestageRes
   // resolves `<cache>/opencode/node_modules/<pkg>/package.json` — anything
   // less and the runtime will still try to bun-add.
   const missing: string[] = [];
+  const resolvedVersions: Record<string, string> = {};
   for (const pkg of OPENCODE_NPM_PROVIDERS) {
     const target = path.join(opencodeCacheDir, "node_modules", pkg, "package.json");
-    if (!fs.existsSync(target)) missing.push(pkg);
+    if (!fs.existsSync(target)) { missing.push(pkg); continue; }
+    try {
+      const inner = JSON.parse(fs.readFileSync(target, "utf-8")) as { version?: unknown };
+      if (typeof inner.version === "string" && inner.version.length > 0) {
+        resolvedVersions[pkg] = inner.version;
+      } else {
+        missing.push(pkg);
+      }
+    } catch {
+      missing.push(pkg);
+    }
   }
   if (missing.length) {
     return {
       ok: false,
-      reason: `npm install reported success but the following packages are missing: ${missing.join(", ")}`,
+      reason: `npm install reported success but the following packages are missing or unreadable: ${missing.join(", ")}`,
     };
   }
+
+  // Restore `dependencies[pkg]` to the literal "latest" — npm install
+  // rewrote it to a resolved semver range, which would break opencode's
+  // string-equality short-circuit. Persist the resolved version in
+  // `_codeStickResolved` so audits / drift checks have a record without
+  // confusing opencode's parser (it ignores unknown fields).
+  const finalPkgJson: Record<string, unknown> = {
+    name: "code-stick-opencode-cache",
+    private: true,
+    dependencies: Object.fromEntries(OPENCODE_NPM_PROVIDERS.map((p) => [p, "latest"])),
+    _codeStickResolved: resolvedVersions,
+  };
+  fs.writeFileSync(pkgJsonPath, JSON.stringify(finalPkgJson, null, 2), "utf-8");
 
   // Portability assertion: scan node_modules for native binary artefacts that
   // would tie the staged tree to the install host's arch/OS. If any show up,

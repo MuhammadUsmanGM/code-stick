@@ -218,25 +218,22 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     });
   }
 
-  // Re-install: drop the old ollama model store and opencode provider cache.
-  // Without this, blobs from the previous default model linger forever (the
-  // new manifest only references one model, so `code-stick remove-model` can't
-  // reach them), eating GBs on the stick. Config is regenerated from scratch
-  // below so it's safe to wipe too.
+  // Re-install: model store and opencode provider cache MUST be wiped before
+  // model pull so blobs from the previous default model don't linger forever
+  // (the new manifest only references one model, so `code-stick remove-model`
+  // can't reach them). Config is regenerated from scratch below.
   //
-  // ALSO wipe each per-target engine/ and opencode/ dir. Otherwise extract-zip
-  // / tar layer the new bundle on top of the old, leaving stale auxiliary
-  // files (dylibs, sidecars, removed-in-upstream binaries) around — at best
-  // wasting space, at worst causing dynamic-link mismatches at launch.
+  // CRITICAL: binary trees (engine/, opencode/) are NOT wiped here. They are
+  // staged into hidden sibling dirs and atomically swapped only after every
+  // target extracts + verifies successfully. Otherwise a download failure on
+  // target #4 of 5 leaves the stick with no working launcher on any platform.
   if (isReinstall) {
-    log.dim("Removing old model store, caches, and binary trees before fresh install...");
+    log.dim("Removing old model store, caches, and config before fresh install...");
     const wipeDirs = [
       p.data,
       p.cache,
       p.state,
       path.join(drivePath, "config", "opencode"),
-      path.join(drivePath, "engine"),
-      path.join(drivePath, "opencode"),
     ];
     for (const dir of wipeDirs) {
       try { fs.rmSync(dir, { recursive: true, force: true }); }
@@ -252,13 +249,43 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   fs.mkdirSync(p.cache, { recursive: true });
   fs.mkdirSync(p.state, { recursive: true });
 
+  // Stage binary trees in hidden sibling dirs on the same filesystem so the
+  // post-extract swap is a single rename (atomic on POSIX, near-atomic on
+  // Windows). On reinstall, scrub any leftover staging from a previous
+  // aborted run before we begin.
+  const engineStaging = path.join(drivePath, ".engine.new");
+  const opencodeStaging = path.join(drivePath, ".opencode.new");
+  for (const stale of [engineStaging, opencodeStaging,
+                       path.join(drivePath, ".engine.old"),
+                       path.join(drivePath, ".opencode.old")]) {
+    try { fs.rmSync(stale, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+  fs.mkdirSync(engineStaging, { recursive: true });
+  fs.mkdirSync(opencodeStaging, { recursive: true });
+  // If install crashes / is Ctrl-C'd between here and the swap, leave no
+  // half-extracted ghost trees behind. The OLD engine/opencode are untouched.
+  registerCleanup(() => {
+    try { fs.rmSync(engineStaging, { recursive: true, force: true }); } catch { /* ignore */ }
+    try { fs.rmSync(opencodeStaging, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
   const totalSteps = 5;
   log.blank();
   log.step(1, totalSteps, `Downloading Ollama for ${ALL_TARGETS.length} target(s)...`);
-  for (const t of ALL_TARGETS) await fetchAndExtractOllama(t, p.engine(t), tempDir);
+  for (const t of ALL_TARGETS) {
+    await fetchAndExtractOllama(t, path.join(engineStaging, t), tempDir);
+  }
 
   log.step(2, totalSteps, `Downloading opencode for ${ALL_TARGETS.length} target(s)...`);
-  for (const t of ALL_TARGETS) await fetchAndExtractOpencode(t, p.opencode(t), tempDir);
+  for (const t of ALL_TARGETS) {
+    await fetchAndExtractOpencode(t, path.join(opencodeStaging, t), tempDir);
+  }
+
+  // Every target extracted + verified — safe to swap. Move old aside, swing
+  // staging into place, then drop old. If anything throws between the two
+  // renames, recover by checking the staging/old dirs on next run.
+  swapDir(path.join(drivePath, "engine"), engineStaging, path.join(drivePath, ".engine.old"));
+  swapDir(path.join(drivePath, "opencode"), opencodeStaging, path.join(drivePath, ".opencode.old"));
 
   stripQuarantineIfMac(path.join(drivePath, "engine"), path.join(drivePath, "opencode"));
 
@@ -407,4 +434,40 @@ function ensureExecutable(binPath: string): void {
   if (process.platform === "win32") return;
   try { fs.chmodSync(binPath, 0o755); }
   catch { /* FAT/exFAT — chmod is a no-op there. Launchers handle perm errors. */ }
+}
+
+/**
+ * Atomically swap `staging/` → `live/`, parking any existing `live/` at
+ * `backup/` so a failure between the two renames is recoverable. Same-
+ * filesystem moves so renameSync is a metadata-only op on POSIX, and on
+ * Windows MoveFileEx without REPLACE_EXISTING (we drop live first).
+ *
+ * Crash windows:
+ *   - between rename(live → backup) and rename(staging → live): on next run
+ *     the user has neither live nor staging-as-live; backup still holds the
+ *     previous tree. Operator can `mv backup live` to recover.
+ *   - between rename(staging → live) and rmSync(backup): backup lingers, live
+ *     is the new tree. Harmless, swept by the next reinstall.
+ */
+function swapDir(live: string, staging: string, backup: string): void {
+  if (!fs.existsSync(staging)) {
+    throw new Error(`Internal: staging dir missing at swap time: ${staging}`);
+  }
+  // Pre-clean any leftover backup from a prior crash — renameSync over an
+  // existing dir errors on Windows.
+  try { fs.rmSync(backup, { recursive: true, force: true }); } catch { /* ignore */ }
+  if (fs.existsSync(live)) {
+    fs.renameSync(live, backup);
+  }
+  try {
+    fs.renameSync(staging, live);
+  } catch (err) {
+    // Couldn't swing staging into place — restore the previous tree so the
+    // stick remains bootable.
+    if (fs.existsSync(backup)) {
+      try { fs.renameSync(backup, live); } catch { /* user is stuck — surface the original error */ }
+    }
+    throw err;
+  }
+  try { fs.rmSync(backup, { recursive: true, force: true }); } catch { /* harmless leftover */ }
 }
