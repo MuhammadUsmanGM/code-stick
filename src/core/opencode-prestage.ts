@@ -62,6 +62,11 @@ export function prestageOpencodeProviders(opencodeCacheDir: string): PrestageRes
         "--omit=dev",
         "--no-audit", "--no-fund",
         "--no-package-lock",
+        // CRITICAL for portability: --ignore-scripts disables postinstall hooks
+        // that would otherwise run prebuild-install and download host-arch
+        // native binaries. The USB has to boot on Windows / macOS / Linux
+        // without surprises, so we refuse to ship arch-tied bindings.
+        "--ignore-scripts",
         "--loglevel=error",
       ],
       {
@@ -99,6 +104,48 @@ export function prestageOpencodeProviders(opencodeCacheDir: string): PrestageRes
     };
   }
 
+  // Portability assertion: scan node_modules for native binary artefacts that
+  // would tie the staged tree to the install host's arch/OS. If any show up,
+  // bail loudly so the maintainer notices instead of users hitting a broken
+  // stick on a different platform.
+  const nativeArtefacts = scanNativeArtefacts(path.join(opencodeCacheDir, "node_modules"));
+  if (nativeArtefacts.length) {
+    return {
+      ok: false,
+      reason:
+        `Staged tree contains host-arch-only artefacts (breaks USB portability):\n` +
+        nativeArtefacts.slice(0, 10).map((p) => `  - ${p}`).join("\n") +
+        (nativeArtefacts.length > 10 ? `\n  …and ${nativeArtefacts.length - 10} more` : ""),
+    };
+  }
+
   log.dim(`Pre-staged: ${OPENCODE_NPM_PROVIDERS.join(", ")}`);
   return { ok: true };
+}
+
+/** Walk node_modules looking for files whose presence would make the tree
+ *  arch-specific (compiled native bindings, prebuilt platform binaries).
+ *  Pure-JS deps return []. */
+function scanNativeArtefacts(nodeModulesDir: string): string[] {
+  const hits: string[] = [];
+  const NATIVE_EXTS = new Set([".node", ".dll", ".dylib", ".so"]);
+  const NATIVE_DIRS = new Set(["build", "prebuilds", "Release", "Debug"]);
+  const MAX_DEPTH = 6;
+  const walk = (dir: string, depth: number) => {
+    if (depth > MAX_DEPTH || hits.length > 50) return;
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (NATIVE_DIRS.has(e.name)) hits.push(full);
+        else walk(full, depth + 1);
+      } else if (e.isFile()) {
+        const ext = path.extname(e.name).toLowerCase();
+        if (NATIVE_EXTS.has(ext)) hits.push(full);
+      }
+    }
+  };
+  if (fs.existsSync(nodeModulesDir)) walk(nodeModulesDir, 0);
+  return hits;
 }

@@ -39,10 +39,25 @@ if not exist "%OPENCODE_BIN%" (
   exit /b 1
 )
 
+REM Refuse to start if 11434 is already bound — we won't fight another Ollama
+REM and we don't want to silently fail the wait loop 30s later.
+powershell -NoProfile -Command "try { (New-Object Net.Sockets.TcpClient).Connect('127.0.0.1',11434); exit 0 } catch { exit 1 }" >nul 2>&1
+if %ERRORLEVEL%==0 (
+  echo [code-stick] Port 11434 is already in use. Stop the other Ollama/process and retry.
+  pause
+  exit /b 1
+)
+
 echo [code-stick] Starting Ollama from USB...
 REM Capture the PID of the ollama process we spawn so we kill only ours on
 REM exit — never touch a pre-existing ollama.exe the user might be running.
+set "OLLAMA_PID="
 for /f "usebackq tokens=*" %%P in (`powershell -NoProfile -Command "$p = Start-Process -FilePath '%OLLAMA_BIN%' -ArgumentList 'serve' -WindowStyle Hidden -PassThru -RedirectStandardOutput '%TEMP%\code-stick-ollama.log' -RedirectStandardError '%TEMP%\code-stick-ollama.err'; $p.Id"`) do set "OLLAMA_PID=%%P"
+if not defined OLLAMA_PID (
+  echo [code-stick] Failed to spawn Ollama. See %TEMP%\code-stick-ollama.err
+  pause
+  exit /b 1
+)
 
 REM Wait for Ollama port (up to ~30s).
 set /a TRIES=0
@@ -66,7 +81,13 @@ echo.
 :cleanup
 echo.
 if defined OLLAMA_PID (
-  echo [code-stick] Stopping Ollama PID %OLLAMA_PID%...
+  echo [code-stick] Stopping Ollama PID %OLLAMA_PID% and child workers...
+  REM `taskkill /T` follows the Job-object / parent-PID chain, but Ollama spawns
+  REM `ollama_llama_server.exe` workers that aren't always re-parented under
+  REM the launcher PID. Walk Win32_Process via PowerShell to enumerate the
+  REM full descendant tree (any depth) before falling back to taskkill.
+  powershell -NoProfile -Command "$root=[int]'%OLLAMA_PID%'; $all=Get-CimInstance Win32_Process; $kill=New-Object System.Collections.Generic.List[int]; $kill.Add($root); $stack=New-Object System.Collections.Generic.Stack[int]; $stack.Push($root); while($stack.Count -gt 0){$p=$stack.Pop(); foreach($c in $all|Where-Object{$_.ParentProcessId -eq $p}){if(-not $kill.Contains([int]$c.ProcessId)){$kill.Add([int]$c.ProcessId); $stack.Push([int]$c.ProcessId)}}}; foreach($pid in $kill){try{Stop-Process -Id $pid -Force -ErrorAction Stop}catch{}}" >nul 2>&1
+  REM Belt-and-braces: taskkill the original PID tree in case anything slipped.
   taskkill /PID %OLLAMA_PID% /T /F >nul 2>&1
 )
 endlocal

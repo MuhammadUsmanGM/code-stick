@@ -57,20 +57,39 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# Refuse to start if 11434 is already bound — we won't fight another Ollama.
+# Try lsof first (always present on macOS), fall back to /dev/tcp probe.
+if command -v lsof >/dev/null 2>&1; then
+  if lsof -nP -iTCP:11434 -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "[code-stick] Port 11434 is already in use. Stop the other Ollama/process and retry."
+    exit 1
+  fi
+elif (echo > /dev/tcp/127.0.0.1/11434) >/dev/null 2>&1; then
+  echo "[code-stick] Port 11434 is already in use. Stop the other Ollama/process and retry."
+  exit 1
+fi
+
 echo "[code-stick] Starting Ollama from USB ($TARGET)..."
 "$OLLAMA_BIN" serve > "/tmp/code-stick-ollama.log" 2>&1 &
 OLLAMA_PID=$!
 
-# Wait for Ollama port (up to ~30s).
+# Wait for Ollama port (up to ~30s). Prefer curl, fall back to /dev/tcp for
+# minimal/stripped environments where curl isn't on PATH.
+READY=
 for i in $(seq 1 60); do
-  if curl -fsS --max-time 1 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
-    READY=1
-    break
+  if command -v curl >/dev/null 2>&1; then
+    if curl -fsS --max-time 1 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+      READY=1; break
+    fi
+  else
+    if (echo > /dev/tcp/127.0.0.1/11434) >/dev/null 2>&1; then
+      READY=1; break
+    fi
   fi
   sleep 0.5
 done
 
-if [ -z "${READY:-}" ]; then
+if [ -z "$READY" ]; then
   echo "[code-stick] Ollama did not start in time. Check /tmp/code-stick-ollama.log"
   exit 1
 fi

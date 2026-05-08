@@ -77,6 +77,22 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# Refuse to start if 11434 is already bound — we won't fight another Ollama.
+if command -v ss >/dev/null 2>&1; then
+  if ss -lnt 2>/dev/null | awk '{print $4}' | grep -qE '(:|\.)11434$'; then
+    echo "[code-stick] Port 11434 is already in use. Stop the other Ollama/process and retry."
+    exit 1
+  fi
+elif command -v lsof >/dev/null 2>&1; then
+  if lsof -nP -iTCP:11434 -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "[code-stick] Port 11434 is already in use. Stop the other Ollama/process and retry."
+    exit 1
+  fi
+elif (echo > /dev/tcp/127.0.0.1/11434) >/dev/null 2>&1; then
+  echo "[code-stick] Port 11434 is already in use. Stop the other Ollama/process and retry."
+  exit 1
+fi
+
 echo "[code-stick] Starting Ollama from USB ($TARGET)..."
 "$OLLAMA_BIN" serve > "/tmp/code-stick-ollama.log" 2>&1 &
 OLLAMA_PID=$!

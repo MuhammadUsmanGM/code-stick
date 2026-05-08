@@ -70,21 +70,43 @@ export function killProcess(name: string): Promise<void> {
 export async function checkPortFree(): Promise<void> {
   const inUse = await isPortInUse(11434);
   if (!inUse) return;
+
+  // Port is bound — try to identify the listener. If `/api/version` answers
+  // 2xx, it's an Ollama instance and the user needs a tailored remediation.
+  // Anything else (non-2xx, network error) means *some other* process owns
+  // the port. AbortError (probe timeout) is inconclusive — we still know the
+  // port is bound, but we can't claim it's "another process" with confidence,
+  // so we surface a softer message.
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 1500);
-    const res = await fetch("http://127.0.0.1:11434/api/version", { signal: controller.signal });
-    clearTimeout(timer);
+    let res: Response;
+    try {
+      res = await fetch("http://127.0.0.1:11434/api/version", { signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
     if (res.ok) {
       throw new Error(
         "Port 11434 is already in use — another Ollama instance is running. " +
         "Stop it (system tray / `ollama` process) and retry."
       );
     }
+    // Bound but not Ollama (non-2xx response) — definitely another process.
+    throw new Error("Port 11434 is already in use by another process.");
   } catch (err) {
-    if (err instanceof Error && err.message.includes("another Ollama instance")) throw err;
+    if (err instanceof Error && err.message.startsWith("Port 11434 is already in use")) throw err;
+    const isAbort = err instanceof Error && (err.name === "AbortError" || /aborted/i.test(err.message));
+    if (isAbort) {
+      throw new Error(
+        "Port 11434 is already in use, but the listener did not respond in time. " +
+        "Check for a stalled Ollama instance or another service bound to 11434."
+      );
+    }
+    // Any other fetch failure (ECONNRESET, parse error, etc.) — port is bound
+    // but the process isn't speaking HTTP cleanly. Treat as another process.
+    throw new Error("Port 11434 is already in use by another process.");
   }
-  throw new Error("Port 11434 is already in use by another process.");
 }
 
 function isPortInUse(port: number, host = "127.0.0.1"): Promise<boolean> {
@@ -125,11 +147,19 @@ export function startOllama(drivePath: string): ChildProcess {
 }
 
 export async function waitForOllama(maxWaitMs = 30000): Promise<boolean> {
+  // Probe `/api/version` — Ollama returns 404 on `/`, which would make a
+  // naive `res.ok` check spin forever and time out.
   const start = Date.now();
   while (Date.now() - start < maxWaitMs) {
     try {
-      const res = await fetch("http://127.0.0.1:11434");
-      if (res.ok) return true;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2000);
+      try {
+        const res = await fetch("http://127.0.0.1:11434/api/version", { signal: controller.signal });
+        if (res.ok) return true;
+      } finally {
+        clearTimeout(timer);
+      }
     } catch { /* not ready */ }
     await new Promise((r) => setTimeout(r, 500));
   }
@@ -198,7 +228,14 @@ export async function stopAll(): Promise<void> {
 }
 
 let shuttingDown = false;
+let hooksInstalled = false;
 export function setupShutdownHooks(): void {
+  // Idempotent: each command (install, start, add-model, …) calls this on
+  // entry. Without the guard, repeat calls within a single process would
+  // attach duplicate SIGINT/SIGTERM listeners and fan out cleanup multiple
+  // times. Mirrors the keypressInitialized pattern in utils/prompt.ts.
+  if (hooksInstalled) return;
+  hooksInstalled = true;
   const cleanup = async () => {
     if (shuttingDown) process.exit(1);
     shuttingDown = true;
