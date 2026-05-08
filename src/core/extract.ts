@@ -14,6 +14,39 @@ export async function extractZipFile(zipPath: string, destDir: string): Promise<
   log.dim(`Extracted ${path.basename(zipPath)}`);
 }
 
+/**
+ * Recursively grant +x to every file under `root` (subject to umask).
+ *
+ * Why: extract-zip strips POSIX permission bits — files come out 0o644 even if
+ * the zip recorded 0o755. We previously chmod'd only the named binary, but
+ * macOS opencode/Ollama bundles ship sidecar binaries, dylibs, and shell
+ * helpers that also need to be executable. A recursive chmod is the simplest
+ * correct answer; setting +x on a regular .json or .txt is harmless.
+ *
+ * No-op on Windows. No-op on FAT32/exFAT (chmod silently ignored).
+ */
+export function chmodExecRecursive(root: string): void {
+  if (process.platform === "win32") return;
+  if (!fs.existsSync(root)) return;
+  const stack: string[] = [root];
+  while (stack.length) {
+    const dir = stack.pop()!;
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+    catch { continue; }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        // dirs need +x for traversal
+        try { fs.chmodSync(full, 0o755); } catch { /* FAT/exFAT */ }
+        stack.push(full);
+      } else if (e.isFile()) {
+        try { fs.chmodSync(full, 0o755); } catch { /* FAT/exFAT */ }
+      }
+    }
+  }
+}
+
 export async function extractTarFile(tarPath: string, destDir: string): Promise<void> {
   fs.mkdirSync(destDir, { recursive: true });
   const resolvedDest = path.resolve(destDir);
@@ -83,7 +116,11 @@ export function ensureBinaryAt(destDir: string, relBin: string, label: string): 
   }
 
   // Shallow search: maybe the archive nested it under a single subdir.
-  const found = shallowSearch(destDir, path.basename(relBin), 3);
+  // Depth: macOS Ollama bundles have shipped binaries inside
+  // `Ollama.app/Contents/Resources/<name>` (4 levels) and Linux .tgz puts
+  // ollama under `bin/`, so 6 levels gives us the headroom for any layout
+  // upstream is plausibly going to ship without traversing whole trees.
+  const found = shallowSearch(destDir, path.basename(relBin), 6);
   if (found) {
     const target = expected;
     fs.mkdirSync(path.dirname(target), { recursive: true });

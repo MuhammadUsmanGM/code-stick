@@ -3,9 +3,8 @@ import got from "got";
 import fs from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { createWriteStream } from "node:fs";
-import { SingleBar, Presets } from "cli-progress";
 import { hashFile } from "hasha";
-import { log } from "../utils/logger.js";
+import { log, createProgress } from "../utils/logger.js";
 import { allowUnverifiedDownloads } from "../utils/env.js";
 
 const MAX_RETRIES = 5;
@@ -22,6 +21,7 @@ interface DownloadOptions {
 export async function download(opts: DownloadOptions): Promise<void> {
   const { url, mirrors, dest, expectedHash, label } = opts;
   const partialPath = `${dest}.partial`;
+  const partialMetaPath = `${dest}.partial.meta`;
   const displayName = label || dest;
   const candidates = Array.from(new Set([url, ...(mirrors || [])])).filter(Boolean);
 
@@ -33,6 +33,24 @@ export async function download(opts: DownloadOptions): Promise<void> {
     );
   }
 
+  // A `.partial` left from a prior run is only safe to resume into when it
+  // was started under the same verification regime AND the same expected
+  // hash. Otherwise resume could splice bytes from one artefact onto bytes
+  // from another (different version, different mirror's CDN-rewritten body),
+  // wasting bandwidth in the best case and trusting unverified bytes on a
+  // hash-disabled retry in the worst. Sidecar `.partial.meta` carries the
+  // URL + expected hash that produced the partial; mismatch → discard.
+  if (fs.existsSync(partialPath)) {
+    const meta = readPartialMeta(partialMetaPath);
+    const sameVerification = meta?.verified === hashLooksReal;
+    const sameHash = (meta?.expectedHash || "") === (expectedHash || "");
+    if (!meta || !sameVerification || !sameHash) {
+      log.warn(`Discarding stale partial for ${displayName} (verification policy or hash changed since last run).`);
+      safeUnlink(partialPath, "stale partial");
+      safeUnlink(partialMetaPath, "stale partial metadata");
+    }
+  }
+
   if (fs.existsSync(dest)) {
     if (hashLooksReal) {
       const hash = await hashFile(dest, { algorithm: "sha256" });
@@ -40,11 +58,16 @@ export async function download(opts: DownloadOptions): Promise<void> {
       log.warn("Existing file hash mismatch — re-downloading");
       fs.unlinkSync(dest);
       safeUnlink(partialPath, "stale partial");
+      safeUnlink(partialMetaPath, "stale partial metadata");
     } else {
       log.dim(`${displayName} already on disk; skipping (unverified mode)`);
       return;
     }
   }
+
+  // Write metadata before the first byte hits the partial, so a crash mid-
+  // download still leaves a meta file the next run can match against.
+  writePartialMeta(partialMetaPath, { verified: hashLooksReal, expectedHash: expectedHash || "" });
 
   let lastErr: unknown;
   let succeeded = false;
@@ -53,6 +76,9 @@ export async function download(opts: DownloadOptions): Promise<void> {
     if (i > 0) {
       log.warn(`Trying mirror ${i + 1}/${candidates.length} for ${displayName}...`);
       safeUnlink(partialPath, "partial from previous mirror");
+      // Refresh metadata so a crash here doesn't leave the next run thinking
+      // the (now-deleted) partial belonged to the previous mirror.
+      writePartialMeta(partialMetaPath, { verified: hashLooksReal, expectedHash: expectedHash || "" });
     }
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
@@ -86,10 +112,36 @@ export async function download(opts: DownloadOptions): Promise<void> {
     const hash = await hashFile(partialPath, { algorithm: "sha256" });
     if (hash !== expectedHash) {
       fs.unlinkSync(partialPath);
+      safeUnlink(partialMetaPath, "partial metadata");
       throw new Error("Downloaded file hash mismatch — file deleted. Try again.");
     }
   }
   fs.renameSync(partialPath, dest);
+  safeUnlink(partialMetaPath, "partial metadata");
+}
+
+interface PartialMeta {
+  verified: boolean;
+  expectedHash: string;
+}
+
+function readPartialMeta(metaPath: string): PartialMeta | null {
+  try {
+    const raw = fs.readFileSync(metaPath, "utf-8");
+    const parsed = JSON.parse(raw) as Partial<PartialMeta>;
+    if (typeof parsed.verified !== "boolean" || typeof parsed.expectedHash !== "string") return null;
+    return { verified: parsed.verified, expectedHash: parsed.expectedHash };
+  } catch { return null; }
+}
+
+function writePartialMeta(metaPath: string, meta: PartialMeta): void {
+  try { fs.writeFileSync(metaPath, JSON.stringify(meta), "utf-8"); }
+  catch (err) {
+    // Sidecar metadata is best-effort. If we can't write it, we lose the
+    // ability to validate a future resume — but the current download still
+    // works. Log dim so the user knows resume safety is degraded.
+    log.dim(`Could not write partial metadata: ${(err as Error).message}`);
+  }
 }
 
 async function attemptDownload(url: string, partialPath: string, label?: string): Promise<void> {
@@ -101,13 +153,7 @@ async function attemptDownload(url: string, partialPath: string, label?: string)
   const headers: Record<string, string> = {};
   if (startByte > 0) headers["Range"] = `bytes=${startByte}-`;
 
-  const bar = new SingleBar(
-    {
-      format: `  {label} |{bar}| {percentage}% | {current}/{total} MB | {speed} MB/s | ETA: {eta_display}`,
-      hideCursor: true,
-    },
-    Presets.shades_grey
-  );
+  const bar = createProgress();
 
   const stream = got.stream(url, {
     headers, followRedirect: true, retry: { limit: 0 },

@@ -1,7 +1,7 @@
 // Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a
 import fs from "node:fs";
 import path from "node:path";
-import { SingleBar, Presets } from "cli-progress";
+import { createProgress } from "../utils/logger.js";
 
 interface WalkResult {
   files: { src: string; dest: string; size: number }[];
@@ -38,13 +38,7 @@ export async function copyDirWithProgress(
   if (files.length === 0) return;
 
   const totalMB = Math.max(1, Math.round(totalBytes / 1e6));
-  const bar = new SingleBar(
-    {
-      format: `  {label} |{bar}| {percentage}% | {current}/{total} MB | {speed} MB/s | ETA: {eta_display}`,
-      hideCursor: true,
-    },
-    Presets.shades_grey,
-  );
+  const bar = createProgress();
 
   bar.start(totalMB, 0, {
     label: label.padEnd(30),

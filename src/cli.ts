@@ -68,6 +68,7 @@ async function main() {
     .description("Remove code-stick (binaries, models, config, launchers) from a USB")
     .option("-t, --target <path>", "Uninstall from this directory")
     .option("-y, --yes", "Skip confirmation prompt")
+    .option("--force", "Proceed even if no code-stick manifest is detected at the target")
     .action(async (opts) => { await uninstallCommand(opts); });
 
   await program.parseAsync(process.argv);

@@ -369,7 +369,54 @@ export function detectFilesystem(drivePath: string): string | null {
       return m ? m[1].trim().toLowerCase() : null;
     }
     // linux
-    const out = execFileSync("findmnt", ["-no", "FSTYPE", "--target", drivePath], { encoding: "utf8", timeout: 5000 });
-    return out.trim().toLowerCase() || null;
+    return detectFilesystemLinux(drivePath);
   } catch { return null; }
+}
+
+/**
+ * Linux fs detection. findmnt is the right tool but isn't on minimal/stripped
+ * images (alpine without `util-linux-misc`, busybox-based containers). Fall
+ * back to /proc/mounts: pick the longest mountpoint that is a path-prefix of
+ * `drivePath`.
+ */
+function detectFilesystemLinux(drivePath: string): string | null {
+  // 1) findmnt — preferred; it handles bind mounts and odd subvol cases.
+  try {
+    const out = execFileSync(
+      "findmnt",
+      ["-no", "FSTYPE", "--target", drivePath],
+      { encoding: "utf8", timeout: 5000 },
+    );
+    const fst = out.trim().toLowerCase();
+    if (fst) return fst;
+  } catch { /* fall through to /proc/mounts */ }
+
+  // 2) /proc/mounts — pure-FS fallback. Format per `proc(5)`:
+  //    `<dev> <mountpoint> <fstype> <opts> <dump> <pass>`
+  //    The kernel escapes spaces/tabs in the mountpoint as octal (\040 etc.).
+  try {
+    const raw = fs.readFileSync("/proc/mounts", "utf-8");
+    const target = path.resolve(drivePath);
+    let bestLen = -1;
+    let bestType: string | null = null;
+    for (const line of raw.split("\n")) {
+      if (!line) continue;
+      const parts = line.split(/\s+/);
+      if (parts.length < 3) continue;
+      const mountpoint = unescapeMount(parts[1]);
+      const fstype = parts[2].toLowerCase();
+      if (target === mountpoint || target.startsWith(mountpoint === "/" ? "/" : mountpoint + "/")) {
+        if (mountpoint.length > bestLen) {
+          bestLen = mountpoint.length;
+          bestType = fstype;
+        }
+      }
+    }
+    return bestType;
+  } catch { return null; }
+}
+
+function unescapeMount(s: string): string {
+  // /proc/mounts escapes 0x00-0x20, 0x5c (\), 0x09 (tab), space etc. as \NNN.
+  return s.replace(/\\([0-9]{3})/g, (_m, oct: string) => String.fromCharCode(parseInt(oct, 8)));
 }

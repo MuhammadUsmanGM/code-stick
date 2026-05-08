@@ -27,7 +27,14 @@ export async function statusCommand(opts: StatusOptions): Promise<void> {
 
   log.info(`Installed:    ${manifest.installedAt}`);
   if (manifest.updatedAt) log.info(`Last updated: ${manifest.updatedAt}`);
-  log.info(`Ollama:       ${manifest.ollamaVersion}`);
+  // Per-target version display: collapse to a single line when host+linux
+  // agree, otherwise call them out separately so drift is visible.
+  const { host, linux } = manifest.ollamaVersions;
+  if (host === linux) {
+    log.info(`Ollama:       ${host || "(unknown)"}`);
+  } else {
+    log.info(`Ollama:       host=${host || "?"}  linux=${linux || "?"}`);
+  }
   log.info(`opencode:     ${manifest.opencodeVersion}`);
 
   log.blank();

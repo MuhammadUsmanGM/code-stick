@@ -10,6 +10,7 @@ import { loadManifest } from "../state/manifest.js";
 interface UninstallOptions {
   target?: string;
   yes?: boolean;
+  force?: boolean;
 }
 
 const REMOVE_DIRS = ["engine", "opencode", "data", "config", "cache", "state", ".code-stick-tmp"];
@@ -33,7 +34,21 @@ export async function uninstallCommand(opts: UninstallOptions): Promise<void> {
     log.dim(`  Models: ${manifest.models.map((m) => m.tag).join(", ")}`);
     log.dim(`  Installed: ${manifest.installedAt}`);
   } else {
-    log.warn(`No code-stick manifest found at ${drivePath} — will still wipe known directories.`);
+    // No manifest = we cannot prove this directory was ever a code-stick
+    // install. Generic dir names like `data/`, `config/`, `cache/`, `state/`
+    // collide with anything a user might keep in their home dir or on a
+    // shared volume — refusing here prevents accidental destruction of
+    // unrelated user data when someone passes the wrong --target.
+    if (!opts.force) {
+      log.error(
+        `No code-stick manifest (code-stick.json) at ${drivePath}.\n` +
+        `Refusing to wipe directories that may not belong to code-stick.\n` +
+        `If you are sure this is the right target, re-run with --force.`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    log.warn(`No code-stick manifest at ${drivePath} — proceeding because --force was passed.`);
   }
 
   if (!opts.yes) {

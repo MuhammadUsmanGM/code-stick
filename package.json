@@ -17,6 +17,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "hashes": "node scripts/compute-hashes.mjs",
+    "hashes:check": "node scripts/check-catalog-hashes.mjs",
+    "hashes:bump": "node scripts/check-catalog-hashes.mjs --write",
     "prepublishOnly": "npm run build && node -e \"require('fs').accessSync('dist/cli.js'); require('fs').accessSync('templates/start-windows.bat.ejs'); require('fs').accessSync('templates/start-mac.command.ejs'); require('fs').accessSync('templates/start-linux.sh.ejs');\""
   },
   "engines": {

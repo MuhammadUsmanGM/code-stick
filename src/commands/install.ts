@@ -14,7 +14,7 @@ import { OLLAMA, ollamaBinaryRel } from "../catalog/ollama.js";
 import { OPENCODE, opencodeBinaryRel } from "../catalog/opencode.js";
 import { MODELS, findModel, type CodingModel } from "../catalog/models.js";
 import { download } from "../core/downloader.js";
-import { extractZipFile, extractTarFile, ensureBinaryAt } from "../core/extract.js";
+import { extractZipFile, extractTarFile, ensureBinaryAt, chmodExecRecursive } from "../core/extract.js";
 import { renderLaunchers } from "../core/launcher-gen.js";
 import { saveManifest, loadManifest, type Manifest } from "../state/manifest.js";
 import { preflightFilesystem, warnIfLosesExecBit } from "../core/preflight.js";
@@ -37,9 +37,9 @@ interface InstallOptions {
 type InstallMode = "fast" | "slow";
 
 // Mixed reality: Win/macOS ship v0.21.2, Linux ships v0.13.0 (last release with
-// .tgz — v0.14+ is .tar.zst only). Manifest stores both so upgrade tooling can
-// reason about per-target versions. opencode is uniform across targets.
-const OLLAMA_VERSION = "v0.21.2 (linux=v0.13.0)";
+// .tgz — v0.14+ is .tar.zst only). Manifest stores both as a structured map so
+// upgrade tooling can reason about per-target drift. opencode is uniform.
+const OLLAMA_VERSIONS = { host: "v0.21.2", linux: "v0.13.0" } as const;
 const OPENCODE_VERSION = "v0.4.18";
 
 const BINARY_FOOTPRINT_GB = 1.5;
@@ -199,16 +199,46 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   const fsInfo = preflightFilesystem(drivePath, model!);
 
   const p = usbPaths(drivePath);
-  const tempDir = path.join(drivePath, ".code-stick-tmp");
+  // Fast mode's whole point is "don't tax the slow USB". Putting the
+  // 1.5 GB+ archive set on the USB defeats half the purpose. Stage on the
+  // host's tmpdir in Fast mode; we already cleanup-callback'd the parent
+  // stage dir below for SIGINT safety. In Direct mode keep the tmp on the
+  // USB so a cancelled run can resume on the next plug-in without re-DLing.
+  const tempDir = installMode === "fast"
+    ? fs.mkdtempSync(path.join(os.tmpdir(), "code-stick-archives-"))
+    : path.join(drivePath, ".code-stick-tmp");
+
+  // Fast-mode archive dir is host-side and ephemeral — register a cleanup so
+  // it doesn't survive a crash or Ctrl-C. Direct-mode tempDir lives on the
+  // USB and is deleted by postInstallCleanup once everything succeeds.
+  if (installMode === "fast") {
+    const fastTempDir = tempDir;
+    registerCleanup(() => {
+      try { fs.rmSync(fastTempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    });
+  }
 
   // Re-install: drop the old ollama model store and opencode provider cache.
   // Without this, blobs from the previous default model linger forever (the
   // new manifest only references one model, so `code-stick remove-model` can't
   // reach them), eating GBs on the stick. Config is regenerated from scratch
   // below so it's safe to wipe too.
+  //
+  // ALSO wipe each per-target engine/ and opencode/ dir. Otherwise extract-zip
+  // / tar layer the new bundle on top of the old, leaving stale auxiliary
+  // files (dylibs, sidecars, removed-in-upstream binaries) around — at best
+  // wasting space, at worst causing dynamic-link mismatches at launch.
   if (isReinstall) {
-    log.dim("Removing old model store and caches before fresh install...");
-    for (const dir of [p.data, p.cache, p.state, path.join(drivePath, "config", "opencode")]) {
+    log.dim("Removing old model store, caches, and binary trees before fresh install...");
+    const wipeDirs = [
+      p.data,
+      p.cache,
+      p.state,
+      path.join(drivePath, "config", "opencode"),
+      path.join(drivePath, "engine"),
+      path.join(drivePath, "opencode"),
+    ];
+    for (const dir of wipeDirs) {
       try { fs.rmSync(dir, { recursive: true, force: true }); }
       catch (err) {
         log.warn(`Could not remove ${dir}: ${(err as Error).message}`);
@@ -250,7 +280,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     models: [{ id: model!.id, tag: model!.tag, addedAt: now }],
     defaultModelId: model!.id,
     targets: [...ALL_TARGETS],
-    ollamaVersion: OLLAMA_VERSION,
+    ollamaVersions: { host: OLLAMA_VERSIONS.host, linux: OLLAMA_VERSIONS.linux },
     opencodeVersion: OPENCODE_VERSION,
   };
 
@@ -350,6 +380,9 @@ async function fetchAndExtractOllama(target: Target, destDir: string, tempDir: s
   else await extractTarFile(archivePath, destDir);
   const rel = ollamaBinaryRel(target);
   ensureBinaryAt(destDir, rel, `ollama ${target}`);
+  // zip-extracted darwin/linux bundles have +x stripped — recursive chmod so
+  // sidecar binaries and dylibs are launchable. Tar already preserves mode.
+  if (art.type === "zip" && target !== "windows-x64") chmodExecRecursive(destDir);
   ensureExecutable(path.join(destDir, rel));
 }
 
@@ -365,6 +398,7 @@ async function fetchAndExtractOpencode(target: Target, destDir: string, tempDir:
   else await extractTarFile(archivePath, destDir);
   const rel = opencodeBinaryRel(target);
   ensureBinaryAt(destDir, rel, `opencode ${target}`);
+  if (art.type === "zip" && target !== "windows-x64") chmodExecRecursive(destDir);
   ensureExecutable(path.join(destDir, rel));
 }
 
