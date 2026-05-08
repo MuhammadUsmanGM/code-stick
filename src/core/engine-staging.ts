@@ -1,0 +1,133 @@
+// Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-c8a1-9e3d
+import fs from "node:fs";
+import path from "node:path";
+import { ALL_TARGETS, type Target } from "../catalog/targets.js";
+import { OLLAMA, ollamaBinaryRel } from "../catalog/ollama.js";
+import { OPENCODE, opencodeBinaryRel } from "../catalog/opencode.js";
+import { download } from "./downloader.js";
+import { extractZipFile, extractTarFile, ensureBinaryAt, chmodExecRecursive } from "./extract.js";
+import { stripQuarantineIfMac } from "./macos.js";
+import { registerCleanup } from "./process-manager.js";
+import { log } from "../utils/logger.js";
+
+/**
+ * Download + extract Ollama and opencode for every target into hidden staging
+ * directories on the same filesystem as the live trees, then atomically swap
+ * them into `<USB>/engine` and `<USB>/opencode`. Used by both fresh install
+ * and `upgrade-engine`.
+ *
+ * Crucially does NOT touch `<USB>/data` (model store), `<USB>/cache`, or
+ * `<USB>/config`. That keeps engine refresh decoupled from the multi-GB model
+ * store — re-pulling a 5GB model just because Ollama bumped a patch version is
+ * not the user's idea of fun.
+ */
+export async function stageAndSwapBinaries(
+  drivePath: string,
+  archiveTempDir: string,
+): Promise<void> {
+  const engineStaging = path.join(drivePath, ".engine.new");
+  const opencodeStaging = path.join(drivePath, ".opencode.new");
+
+  // Scrub any leftover staging from a previous aborted run before starting.
+  for (const stale of [
+    engineStaging, opencodeStaging,
+    path.join(drivePath, ".engine.old"),
+    path.join(drivePath, ".opencode.old"),
+  ]) {
+    try { fs.rmSync(stale, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+  fs.mkdirSync(engineStaging, { recursive: true });
+  fs.mkdirSync(opencodeStaging, { recursive: true });
+
+  // Mid-flight Ctrl-C: nuke half-extracted staging trees. The OLD engine/opencode
+  // are untouched until the swap below.
+  registerCleanup(() => {
+    try { fs.rmSync(engineStaging, { recursive: true, force: true }); } catch { /* ignore */ }
+    try { fs.rmSync(opencodeStaging, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  log.info(`Downloading Ollama for ${ALL_TARGETS.length} target(s)...`);
+  for (const t of ALL_TARGETS) {
+    await fetchAndExtractOllama(t, path.join(engineStaging, t), archiveTempDir);
+  }
+
+  log.info(`Downloading opencode for ${ALL_TARGETS.length} target(s)...`);
+  for (const t of ALL_TARGETS) {
+    await fetchAndExtractOpencode(t, path.join(opencodeStaging, t), archiveTempDir);
+  }
+
+  // Every target extracted + verified — safe to swap.
+  swapDir(path.join(drivePath, "engine"), engineStaging, path.join(drivePath, ".engine.old"));
+  swapDir(path.join(drivePath, "opencode"), opencodeStaging, path.join(drivePath, ".opencode.old"));
+
+  stripQuarantineIfMac(path.join(drivePath, "engine"), path.join(drivePath, "opencode"));
+}
+
+async function fetchAndExtractOllama(target: Target, destDir: string, tempDir: string): Promise<void> {
+  const art = OLLAMA[target];
+  fs.mkdirSync(destDir, { recursive: true });
+  const archivePath = path.join(tempDir, art.filename);
+  await download({
+    url: art.url, mirrors: art.mirrors, dest: archivePath,
+    expectedHash: art.sha256, label: `ollama ${target}`,
+  });
+  if (art.type === "zip") await extractZipFile(archivePath, destDir);
+  else await extractTarFile(archivePath, destDir);
+  const rel = ollamaBinaryRel(target);
+  ensureBinaryAt(destDir, rel, `ollama ${target}`);
+  if (art.type === "zip" && target !== "windows-x64") chmodExecRecursive(destDir);
+  ensureExecutable(path.join(destDir, rel));
+}
+
+async function fetchAndExtractOpencode(target: Target, destDir: string, tempDir: string): Promise<void> {
+  const art = OPENCODE[target];
+  fs.mkdirSync(destDir, { recursive: true });
+  const archivePath = path.join(tempDir, art.filename);
+  await download({
+    url: art.url, mirrors: art.mirrors, dest: archivePath,
+    expectedHash: art.sha256, label: `opencode ${target}`,
+  });
+  if (art.type === "zip") await extractZipFile(archivePath, destDir);
+  else await extractTarFile(archivePath, destDir);
+  const rel = opencodeBinaryRel(target);
+  ensureBinaryAt(destDir, rel, `opencode ${target}`);
+  if (art.type === "zip" && target !== "windows-x64") chmodExecRecursive(destDir);
+  ensureExecutable(path.join(destDir, rel));
+}
+
+function ensureExecutable(binPath: string): void {
+  if (!fs.existsSync(binPath)) return;
+  if (process.platform === "win32") return;
+  try { fs.chmodSync(binPath, 0o755); }
+  catch { /* FAT/exFAT — chmod is a no-op there. Launchers handle perm errors. */ }
+}
+
+/**
+ * Atomically swap `staging/` → `live/`, parking any existing `live/` at
+ * `backup/` so a failure between the two renames is recoverable.
+ *
+ * Crash windows:
+ *   - between rename(live → backup) and rename(staging → live): on next run
+ *     the user has neither live nor staging-as-live; backup still holds the
+ *     previous tree. Operator can `mv backup live` to recover.
+ *   - between rename(staging → live) and rmSync(backup): backup lingers, live
+ *     is the new tree. Harmless, swept by the next reinstall.
+ */
+export function swapDir(live: string, staging: string, backup: string): void {
+  if (!fs.existsSync(staging)) {
+    throw new Error(`Internal: staging dir missing at swap time: ${staging}`);
+  }
+  try { fs.rmSync(backup, { recursive: true, force: true }); } catch { /* ignore */ }
+  if (fs.existsSync(live)) {
+    fs.renameSync(live, backup);
+  }
+  try {
+    fs.renameSync(staging, live);
+  } catch (err) {
+    if (fs.existsSync(backup)) {
+      try { fs.renameSync(backup, live); } catch { /* user is stuck — surface the original error */ }
+    }
+    throw err;
+  }
+  try { fs.rmSync(backup, { recursive: true, force: true }); } catch { /* harmless leftover */ }
+}

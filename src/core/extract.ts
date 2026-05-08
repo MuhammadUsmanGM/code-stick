@@ -125,7 +125,13 @@ export function ensureBinaryAt(destDir: string, relBin: string, label: string): 
     const target = expected;
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.renameSync(found, target);
-    if (fs.existsSync(expected)) return;
+    if (fs.existsSync(expected)) {
+      // chmod here too — relocated file may be the only candidate ensureExecutable
+      // sees later, and on macOS the .app/Contents/MacOS/ binaries are 755 in the
+      // archive but the rename loses the bit on some filesystems.
+      try { fs.chmodSync(expected, 0o755); } catch { /* FAT */ }
+      return;
+    }
   }
 
   throw new Error(
@@ -156,8 +162,30 @@ function moveContents(srcDir: string, destDir: string): void {
   }
 }
 
+/**
+ * Find the best file matching `basename` under `root`.
+ *
+ * Naive BFS-first-match is wrong on case-insensitive APFS / macOS: an Ollama
+ * .zip can ship both the headless CLI (`Resources/ollama`, ~30MB, exec) AND
+ * the GUI app's main executable (`Ollama.app/Contents/MacOS/Ollama`, the
+ * SwiftUI launcher). On HFS+/APFS the two collide on case-insensitive
+ * comparison so a basename match can return the GUI app, which then fails to
+ * `serve` headlessly. We score candidates and pick the highest-scoring one:
+ *
+ *   +3   exec bit set (st_mode & 0o111)  — non-exec data files lose
+ *   -5   path contains `.app/`           — GUI bundles are always wrong here
+ *   -2   exact basename mismatch (case)  — prefer the case the caller asked
+ *   +1   parent dir is `bin/` or matches the binary basename
+ *   -size penalty for files <100KB        — stub launchers / readmes named "ollama"
+ *
+ * Files smaller than 16KB are dropped outright; they can't possibly be the
+ * binary we want.
+ */
 function shallowSearch(root: string, basename: string, maxDepth: number): string | null {
+  interface Candidate { full: string; score: number; }
+  const candidates: Candidate[] = [];
   const queue: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
+
   while (queue.length) {
     const { dir, depth } = queue.shift()!;
     let entries: fs.Dirent[];
@@ -165,9 +193,33 @@ function shallowSearch(root: string, basename: string, maxDepth: number): string
     catch { continue; }
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
-      if (entry.isFile() && entry.name === basename) return full;
-      if (entry.isDirectory() && depth < maxDepth) queue.push({ dir: full, depth: depth + 1 });
+      if (entry.isDirectory()) {
+        if (depth < maxDepth) queue.push({ dir: full, depth: depth + 1 });
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      // Case-insensitive match so APFS doesn't strand us, but score the case
+      // mismatch down so we prefer "ollama" over "Ollama" when both exist.
+      if (entry.name.toLowerCase() !== basename.toLowerCase()) continue;
+
+      let stat: fs.Stats;
+      try { stat = fs.statSync(full); } catch { continue; }
+      if (stat.size < 16 * 1024) continue;
+
+      let score = 0;
+      const isExec = (stat.mode & 0o111) !== 0;
+      if (isExec) score += 3;
+      if (full.includes(`.app${path.sep}`) || /\.app\//.test(full)) score -= 5;
+      if (entry.name !== basename) score -= 2;
+      const parent = path.basename(path.dirname(full));
+      if (parent === "bin" || parent === basename) score += 1;
+      if (stat.size < 100 * 1024) score -= 1;
+
+      candidates.push({ full, score });
     }
   }
-  return null;
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0].full;
 }

@@ -6,6 +6,7 @@ import { installCommand } from "./commands/install.js";
 import { startCommand } from "./commands/start.js";
 import { statusCommand } from "./commands/status.js";
 import { updateCommand } from "./commands/update.js";
+import { upgradeEngineCommand } from "./commands/upgrade-engine.js";
 import { addModelCommand } from "./commands/add-model.js";
 import { removeModelCommand } from "./commands/remove-model.js";
 import { uninstallCommand } from "./commands/uninstall.js";
@@ -48,6 +49,14 @@ async function main() {
     .description("Refresh launcher scripts and manifest timestamp")
     .option("-t, --target <path>", "Update this installation directory")
     .action(async (opts) => { await updateCommand(opts); });
+
+  program
+    .command("upgrade-engine")
+    .description("Re-download + swap Ollama + opencode binaries, preserving the model store")
+    .option("-t, --target <path>", "Upgrade this installation directory")
+    .option("-y, --yes", "Skip confirmation")
+    .option("--no-cleanup", "Keep installer archives + temp dirs after upgrade (debugging)")
+    .action(async (opts) => { await upgradeEngineCommand(opts); });
 
   program
     .command("add-model [id]")

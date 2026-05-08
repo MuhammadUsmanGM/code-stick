@@ -9,22 +9,18 @@ import {
   getFreeSpaceGB, sameDevice,
 } from "../core/usb.js";
 import { usbPaths } from "../utils/paths.js";
-import { ALL_TARGETS, type Target } from "../catalog/targets.js";
-import { OLLAMA, ollamaBinaryRel } from "../catalog/ollama.js";
-import { OPENCODE, opencodeBinaryRel } from "../catalog/opencode.js";
+import { ALL_TARGETS } from "../catalog/targets.js";
 import { MODELS, findModel, type CodingModel } from "../catalog/models.js";
-import { download } from "../core/downloader.js";
-import { extractZipFile, extractTarFile, ensureBinaryAt, chmodExecRecursive } from "../core/extract.js";
 import { renderLaunchers } from "../core/launcher-gen.js";
 import { saveManifest, loadManifest, type Manifest } from "../state/manifest.js";
 import { preflightFilesystem, warnIfLosesExecBit } from "../core/preflight.js";
 import { postInstallCleanup } from "../core/cleanup.js";
 import { setupShutdownHooks, stopAll, registerCleanup } from "../core/process-manager.js";
-import { stripQuarantineIfMac } from "../core/macos.js";
 import { pullModelTag } from "../core/model-pull.js";
 import { writeOpencodeConfig } from "../core/opencode-config.js";
 import { copyDirWithProgress } from "../core/copy.js";
 import { prestageOpencodeProviders } from "../core/opencode-prestage.js";
+import { stageAndSwapBinaries } from "../core/engine-staging.js";
 
 interface InstallOptions {
   target?: string;
@@ -249,45 +245,11 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   fs.mkdirSync(p.cache, { recursive: true });
   fs.mkdirSync(p.state, { recursive: true });
 
-  // Stage binary trees in hidden sibling dirs on the same filesystem so the
-  // post-extract swap is a single rename (atomic on POSIX, near-atomic on
-  // Windows). On reinstall, scrub any leftover staging from a previous
-  // aborted run before we begin.
-  const engineStaging = path.join(drivePath, ".engine.new");
-  const opencodeStaging = path.join(drivePath, ".opencode.new");
-  for (const stale of [engineStaging, opencodeStaging,
-                       path.join(drivePath, ".engine.old"),
-                       path.join(drivePath, ".opencode.old")]) {
-    try { fs.rmSync(stale, { recursive: true, force: true }); } catch { /* ignore */ }
-  }
-  fs.mkdirSync(engineStaging, { recursive: true });
-  fs.mkdirSync(opencodeStaging, { recursive: true });
-  // If install crashes / is Ctrl-C'd between here and the swap, leave no
-  // half-extracted ghost trees behind. The OLD engine/opencode are untouched.
-  registerCleanup(() => {
-    try { fs.rmSync(engineStaging, { recursive: true, force: true }); } catch { /* ignore */ }
-    try { fs.rmSync(opencodeStaging, { recursive: true, force: true }); } catch { /* ignore */ }
-  });
-
   const totalSteps = 5;
   log.blank();
-  log.step(1, totalSteps, `Downloading Ollama for ${ALL_TARGETS.length} target(s)...`);
-  for (const t of ALL_TARGETS) {
-    await fetchAndExtractOllama(t, path.join(engineStaging, t), tempDir);
-  }
-
-  log.step(2, totalSteps, `Downloading opencode for ${ALL_TARGETS.length} target(s)...`);
-  for (const t of ALL_TARGETS) {
-    await fetchAndExtractOpencode(t, path.join(opencodeStaging, t), tempDir);
-  }
-
-  // Every target extracted + verified — safe to swap. Move old aside, swing
-  // staging into place, then drop old. If anything throws between the two
-  // renames, recover by checking the staging/old dirs on next run.
-  swapDir(path.join(drivePath, "engine"), engineStaging, path.join(drivePath, ".engine.old"));
-  swapDir(path.join(drivePath, "opencode"), opencodeStaging, path.join(drivePath, ".opencode.old"));
-
-  stripQuarantineIfMac(path.join(drivePath, "engine"), path.join(drivePath, "opencode"));
+  log.step(1, totalSteps, `Staging binaries for ${ALL_TARGETS.length} target(s)...`);
+  log.step(2, totalSteps, "Atomic swap into <USB>/engine and <USB>/opencode...");
+  await stageAndSwapBinaries(drivePath, tempDir);
 
   log.step(3, totalSteps, `Pulling model ${model!.tag} (${installMode === "fast" ? "stage on host" : "direct to USB"})...`);
   try {
@@ -395,79 +357,3 @@ function isENOSPC(err: unknown): boolean {
   return /ENOSPC|no space left/i.test(msg);
 }
 
-async function fetchAndExtractOllama(target: Target, destDir: string, tempDir: string): Promise<void> {
-  const art = OLLAMA[target];
-  fs.mkdirSync(destDir, { recursive: true });
-  const archivePath = path.join(tempDir, art.filename);
-  await download({
-    url: art.url, mirrors: art.mirrors, dest: archivePath,
-    expectedHash: art.sha256, label: `ollama ${target}`,
-  });
-  if (art.type === "zip") await extractZipFile(archivePath, destDir);
-  else await extractTarFile(archivePath, destDir);
-  const rel = ollamaBinaryRel(target);
-  ensureBinaryAt(destDir, rel, `ollama ${target}`);
-  // zip-extracted darwin/linux bundles have +x stripped — recursive chmod so
-  // sidecar binaries and dylibs are launchable. Tar already preserves mode.
-  if (art.type === "zip" && target !== "windows-x64") chmodExecRecursive(destDir);
-  ensureExecutable(path.join(destDir, rel));
-}
-
-async function fetchAndExtractOpencode(target: Target, destDir: string, tempDir: string): Promise<void> {
-  const art = OPENCODE[target];
-  fs.mkdirSync(destDir, { recursive: true });
-  const archivePath = path.join(tempDir, art.filename);
-  await download({
-    url: art.url, mirrors: art.mirrors, dest: archivePath,
-    expectedHash: art.sha256, label: `opencode ${target}`,
-  });
-  if (art.type === "zip") await extractZipFile(archivePath, destDir);
-  else await extractTarFile(archivePath, destDir);
-  const rel = opencodeBinaryRel(target);
-  ensureBinaryAt(destDir, rel, `opencode ${target}`);
-  if (art.type === "zip" && target !== "windows-x64") chmodExecRecursive(destDir);
-  ensureExecutable(path.join(destDir, rel));
-}
-
-function ensureExecutable(binPath: string): void {
-  if (!fs.existsSync(binPath)) return;
-  if (process.platform === "win32") return;
-  try { fs.chmodSync(binPath, 0o755); }
-  catch { /* FAT/exFAT — chmod is a no-op there. Launchers handle perm errors. */ }
-}
-
-/**
- * Atomically swap `staging/` → `live/`, parking any existing `live/` at
- * `backup/` so a failure between the two renames is recoverable. Same-
- * filesystem moves so renameSync is a metadata-only op on POSIX, and on
- * Windows MoveFileEx without REPLACE_EXISTING (we drop live first).
- *
- * Crash windows:
- *   - between rename(live → backup) and rename(staging → live): on next run
- *     the user has neither live nor staging-as-live; backup still holds the
- *     previous tree. Operator can `mv backup live` to recover.
- *   - between rename(staging → live) and rmSync(backup): backup lingers, live
- *     is the new tree. Harmless, swept by the next reinstall.
- */
-function swapDir(live: string, staging: string, backup: string): void {
-  if (!fs.existsSync(staging)) {
-    throw new Error(`Internal: staging dir missing at swap time: ${staging}`);
-  }
-  // Pre-clean any leftover backup from a prior crash — renameSync over an
-  // existing dir errors on Windows.
-  try { fs.rmSync(backup, { recursive: true, force: true }); } catch { /* ignore */ }
-  if (fs.existsSync(live)) {
-    fs.renameSync(live, backup);
-  }
-  try {
-    fs.renameSync(staging, live);
-  } catch (err) {
-    // Couldn't swing staging into place — restore the previous tree so the
-    // stick remains bootable.
-    if (fs.existsSync(backup)) {
-      try { fs.renameSync(backup, live); } catch { /* user is stuck — surface the original error */ }
-    }
-    throw err;
-  }
-  try { fs.rmSync(backup, { recursive: true, force: true }); } catch { /* harmless leftover */ }
-}

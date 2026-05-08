@@ -99,10 +99,12 @@ export async function removeModelTag(drivePath: string, tag: string): Promise<vo
 }
 
 /**
- * Remove any leftover partial blob files from the Ollama store. Ollama writes
- * blobs as `sha256-<hex>-partial` (and `*.partial-<n>` chunks on resumable
- * pulls) while downloading; an aborted pull leaves those behind. They aren't
- * referenced by any manifest so they're safe to delete unconditionally.
+ * Remove any leftover partial blob files from the Ollama store. Ollama has
+ * shipped two naming conventions across versions:
+ *   - older: `sha256-<hex>-partial` and `sha256-<hex>-partial-<n>`
+ *   - newer: `sha256-<hex>.partial` and `sha256-<hex>.partial-<n>`
+ * Both forms appear during/after an aborted pull. Neither is referenced by
+ * any manifest, so both are safe to delete unconditionally.
  */
 function cleanPartialBlobs(dataDir: string): void {
   const blobsDir = path.join(dataDir, "blobs");
@@ -110,7 +112,7 @@ function cleanPartialBlobs(dataDir: string): void {
   let removed = 0;
   try {
     for (const name of fs.readdirSync(blobsDir)) {
-      if (!/-partial(?:-\d+)?$/.test(name)) continue;
+      if (!/[-.]partial(?:[-.]\d+)?$/.test(name)) continue;
       try {
         fs.rmSync(path.join(blobsDir, name), { force: true });
         removed++;

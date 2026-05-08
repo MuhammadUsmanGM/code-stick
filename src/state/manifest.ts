@@ -140,9 +140,34 @@ export function loadManifest(drivePath: string): Manifest | null {
 const LOCK_TIMEOUT_MS = 30_000;
 const LOCK_STALE_MS = 10 * 60 * 1000;
 
+interface LockInfo {
+  pid?: number;
+  host?: string;
+  at?: number;
+  /** Process comm (e.g. "node") captured at lock time so PID recycling doesn't
+   *  let an unrelated process inherit the lock. POSIX-only; absent on Windows. */
+  comm?: string;
+}
+
+function readProcComm(pid: number): string | null {
+  // Only Linux exposes /proc/<pid>/comm. macOS would need ps; not worth the
+  // spawn cost in the lock hot path. Returning null means "can't verify" —
+  // callers fall back to the mtime + age check.
+  if (process.platform !== "linux") return null;
+  try {
+    return fs.readFileSync(`/proc/${pid}/comm`, "utf-8").trim() || null;
+  } catch { return null; }
+}
+
 function acquireManifestLock(lockPath: string): void {
   const deadline = Date.now() + LOCK_TIMEOUT_MS;
-  const payload = JSON.stringify({ pid: process.pid, host: os.hostname(), at: Date.now() });
+  const ownComm = readProcComm(process.pid);
+  const payload = JSON.stringify({
+    pid: process.pid,
+    host: os.hostname(),
+    at: Date.now(),
+    comm: ownComm,
+  });
 
   while (true) {
     try {
@@ -153,16 +178,7 @@ function acquireManifestLock(lockPath: string): void {
       const code = (err as NodeJS.ErrnoException).code;
       if (code !== "EEXIST") throw err;
 
-      let stale = false;
-      try {
-        const raw = fs.readFileSync(lockPath, "utf-8");
-        const info = JSON.parse(raw) as { pid?: number; host?: string; at?: number };
-        const sameHost = info.host === os.hostname();
-        const ageMs = info.at ? Date.now() - info.at : Infinity;
-        if (sameHost && info.pid && !pidAlive(info.pid)) stale = true;
-        if (ageMs > LOCK_STALE_MS) stale = true;
-      } catch { stale = true; }
-
+      const stale = isLockStale(lockPath);
       if (stale) {
         try { fs.unlinkSync(lockPath); } catch { /* race */ }
         continue;
@@ -175,6 +191,54 @@ function acquireManifestLock(lockPath: string): void {
       sleepSync(100);
     }
   }
+}
+
+/**
+ * Decide whether an existing lock is abandoned.
+ *
+ * Defense-in-depth so PID recycling can't let us steal a healthy install's
+ * lock: a dead PID isn't enough — the kernel may have already handed that PID
+ * to an unrelated process (especially on hosts with low pid_max). We check, in
+ * order:
+ *
+ *   1. Different host → never claim stale (NFS / shared USB scenarios).
+ *   2. Lock file mtime older than LOCK_STALE_MS regardless of PID → stale.
+ *   3. PID dead on this host → stale.
+ *   4. PID alive but its /proc/<pid>/comm differs from the comm captured at
+ *      lock time → recycled PID, treat as stale.
+ *   5. Otherwise → still healthy.
+ *
+ * Anything we fail to parse falls through to "stale" so a corrupted lock can
+ * never wedge the installer indefinitely.
+ */
+function isLockStale(lockPath: string): boolean {
+  let info: LockInfo;
+  let mtimeMs: number;
+  try {
+    const raw = fs.readFileSync(lockPath, "utf-8");
+    info = JSON.parse(raw) as LockInfo;
+    mtimeMs = fs.statSync(lockPath).mtimeMs;
+  } catch { return true; }
+
+  const sameHost = info.host === os.hostname();
+  if (!sameHost) return false;
+
+  const ageMs = Math.max(
+    info.at ? Date.now() - info.at : 0,
+    Date.now() - mtimeMs,
+  );
+  if (ageMs > LOCK_STALE_MS) return true;
+
+  if (!info.pid) return true;
+  if (!pidAlive(info.pid)) return true;
+
+  // PID is alive — but is it the same process that took the lock? If we have
+  // a recorded comm and current comm differs, the kernel recycled the PID.
+  if (info.comm) {
+    const currentComm = readProcComm(info.pid);
+    if (currentComm !== null && currentComm !== info.comm) return true;
+  }
+  return false;
 }
 
 const sleepBuf = new Int32Array(new SharedArrayBuffer(4));

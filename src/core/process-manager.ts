@@ -229,19 +229,96 @@ export async function stopAll(): Promise<void> {
 
 let shuttingDown = false;
 let hooksInstalled = false;
+
+/**
+ * Best-effort synchronous teardown for exit paths that can't await:
+ * `process.exit()`, `uncaughtException`, the `exit` event itself. Async cleanup
+ * callbacks (registerCleanup) skip their await — we still try to fire them so
+ * sync rmSync etc. runs, but we cannot wait on Promises here.
+ */
+function syncStopAll(): void {
+  // Kill registered children synchronously by PID. tree-kill is async; on
+  // non-Windows we can fall back to process.kill which is sync.
+  for (const [name, proc] of processes) {
+    const pid = proc.pid;
+    if (!pid) continue;
+    try {
+      if (process.platform === "win32") {
+        // No clean sync tree-kill on Windows; spawnSync taskkill is the closest.
+        // Best-effort — if this fails the OS reaps when our process dies anyway.
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        require("node:child_process").spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true });
+      } else {
+        try { process.kill(-pid, "SIGTERM"); } catch { /* not a group leader */ }
+        try { process.kill(pid, "SIGKILL"); } catch { /* gone */ }
+      }
+    } catch { /* best-effort */ }
+    processes.delete(name);
+  }
+  for (const fn of [...cleanupCallbacks]) {
+    try {
+      const r = fn();
+      // If a cleanup returned a Promise we can't wait on it — accept the leak.
+      void r;
+    } catch { /* ignore */ }
+    cleanupCallbacks.delete(fn);
+  }
+}
+
 export function setupShutdownHooks(): void {
   // Idempotent: each command (install, start, add-model, …) calls this on
   // entry. Without the guard, repeat calls within a single process would
-  // attach duplicate SIGINT/SIGTERM listeners and fan out cleanup multiple
-  // times. Mirrors the keypressInitialized pattern in utils/prompt.ts.
+  // attach duplicate listeners and fan out cleanup multiple times. Mirrors
+  // the keypressInitialized pattern in utils/prompt.ts.
   if (hooksInstalled) return;
   hooksInstalled = true;
-  const cleanup = async () => {
+
+  const asyncCleanup = (signal: NodeJS.Signals | string) => async () => {
     if (shuttingDown) process.exit(1);
     shuttingDown = true;
     await stopAll();
+    // Re-raise the original signal so the parent shell sees the right exit
+    // status (128 + signo for terminations). Plain process.exit(0) lies about
+    // why we stopped.
+    if (typeof signal === "string" && signal.startsWith("SIG")) {
+      process.exit(signal === "SIGINT" ? 130 : signal === "SIGTERM" ? 143 : 0);
+    }
     process.exit(0);
   };
-  process.on("SIGINT", cleanup);
-  process.on("SIGTERM", cleanup);
+
+  // Async-capable signals: SIGINT (Ctrl-C), SIGTERM (kill), SIGHUP (terminal
+  // close on POSIX), SIGBREAK (Ctrl-Break / console-X on Windows).
+  process.on("SIGINT", asyncCleanup("SIGINT"));
+  process.on("SIGTERM", asyncCleanup("SIGTERM"));
+  process.on("SIGHUP", asyncCleanup("SIGHUP"));
+  // SIGBREAK is Windows-only — Node ignores .on("SIGBREAK") on POSIX, so this
+  // is safe to register unconditionally.
+  process.on("SIGBREAK" as NodeJS.Signals, asyncCleanup("SIGBREAK"));
+
+  // Last-chance sync teardown: someone called process.exit() directly, or an
+  // uncaught error is propagating. Async stopAll() won't run here.
+  process.on("exit", () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    syncStopAll();
+  });
+  process.on("uncaughtException", (err) => {
+    log.error(`Uncaught exception: ${err instanceof Error ? err.message : String(err)}`);
+    if (process.env.CODE_STICK_DEBUG === "1" && err instanceof Error && err.stack) {
+      console.error(err.stack);
+    }
+    if (!shuttingDown) {
+      shuttingDown = true;
+      syncStopAll();
+    }
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (reason) => {
+    log.error(`Unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`);
+    if (!shuttingDown) {
+      shuttingDown = true;
+      syncStopAll();
+    }
+    process.exit(1);
+  });
 }
