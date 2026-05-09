@@ -61,7 +61,7 @@ interface ManifestV1 {
  * ("v0.21.2") or "v0.21.2 (linux=v0.13.0)". Anything we can't parse falls
  * back to the same string for both fields — better than dropping data.
  */
-function parseLegacyOllamaVersion(s: unknown): OllamaVersionMap {
+export function parseLegacyOllamaVersion(s: unknown): OllamaVersionMap {
   if (typeof s !== "string" || !s) return { host: "", linux: "" };
   const m = /^([^\s(]+)\s*\(linux=([^)]+)\)$/.exec(s.trim());
   if (m) return { host: m[1].trim(), linux: m[2].trim() };

@@ -13,7 +13,7 @@ import { ALL_TARGETS } from "../catalog/targets.js";
 import { MODELS, findModel, type CodingModel } from "../catalog/models.js";
 import { renderLaunchers } from "../core/launcher-gen.js";
 import { saveManifest, loadManifest, type Manifest } from "../state/manifest.js";
-import { preflightFilesystem, warnIfLosesExecBit } from "../core/preflight.js";
+import { preflightFilesystem, warnIfLosesExecBit, winPathPreflight } from "../core/preflight.js";
 import { postInstallCleanup } from "../core/cleanup.js";
 import { setupShutdownHooks, stopAll, registerCleanup } from "../core/process-manager.js";
 import { pullModelTag } from "../core/model-pull.js";
@@ -200,6 +200,10 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   // All confirmed — re-verify the USB is still mounted/writable.
   assertDriveReady(drivePath);
   const fsInfo = preflightFilesystem(drivePath, model!);
+  // Win32 only: refuse to start if the USB mount path is so deep that the
+  // pre-staged node_modules tree would overflow MAX_PATH (260). Surfaces a
+  // remediation rather than letting the install fail mid-prestage.
+  winPathPreflight(drivePath);
 
   const p = usbPaths(drivePath);
   // Fast mode's whole point is "don't tax the slow USB". Putting the
@@ -313,6 +317,13 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   log.dim(`  Linux:    ./start-linux.sh`);
   log.dim("Or run: code-stick start");
   log.dim("Add another model later: code-stick add-model");
+  if (process.platform === "darwin") {
+    log.blank();
+    log.info("macOS first-launch tip:");
+    log.dim("  Gatekeeper may quarantine unsigned binaries copied via external media.");
+    log.dim("  If double-clicking start-mac.command bounces, right-click → Open → Open.");
+    log.dim("  This ritual is one-time per launcher, per machine.");
+  }
   } finally {
     if (logOpen) closeInstallLog();
   }

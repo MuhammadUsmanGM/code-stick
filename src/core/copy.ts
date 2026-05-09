@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createProgress } from "../utils/logger.js";
+import { toLongPath } from "../utils/paths.js";
 
 interface WalkResult {
   files: { src: string; dest: string; size: number }[];
@@ -11,13 +12,17 @@ interface WalkResult {
 function walkTree(src: string, dest: string): WalkResult {
   const files: WalkResult["files"] = [];
   let totalBytes = 0;
+  // Walk uses long-path form on Win32 so deeply-nested trees (e.g. staged
+  // model blobs nested under @scope/pkg/dist/...) don't trip MAX_PATH while
+  // we readdir/stat. The src/dest strings recorded for later copy ops are
+  // also long-path so the per-file copy path stays consistent.
   const walk = (s: string, d: string) => {
-    for (const entry of fs.readdirSync(s, { withFileTypes: true })) {
+    for (const entry of fs.readdirSync(toLongPath(s), { withFileTypes: true })) {
       const sp = path.join(s, entry.name);
       const dp = path.join(d, entry.name);
       if (entry.isDirectory()) walk(sp, dp);
       else if (entry.isFile()) {
-        const size = fs.statSync(sp).size;
+        const size = fs.statSync(toLongPath(sp)).size;
         files.push({ src: sp, dest: dp, size });
         totalBytes += size;
       }
@@ -56,13 +61,15 @@ export async function copyDirWithProgress(
   try {
     const dirs = new Set<string>();
     for (const f of files) dirs.add(path.dirname(f.dest));
-    for (const d of dirs) fs.mkdirSync(d, { recursive: true });
+    for (const d of dirs) fs.mkdirSync(toLongPath(d), { recursive: true });
 
     for (const f of files) {
+      const longSrc = toLongPath(f.src);
+      const longDest = toLongPath(f.dest);
       // Skip files that already match by size — protects re-runs after a USB
       // unplug/ENOSPC: anything fully copied last time is preserved.
       try {
-        const st = fs.statSync(f.dest);
+        const st = fs.statSync(longDest);
         if (st.isFile() && st.size === f.size) {
           copiedBytes += f.size;
           continue;
@@ -72,14 +79,14 @@ export async function copyDirWithProgress(
       // the user unplugs the USB or hits ENOSPC mid-copy, only a .partial
       // file remains — Ollama never sees a torn blob, and a re-run will
       // overwrite the partial with a fresh copy.
-      const stagePath = `${f.dest}.partial`;
+      const stagePath = `${longDest}.partial`;
       try { fs.unlinkSync(stagePath); } catch { /* not present, that's fine */ }
-      fs.copyFileSync(f.src, stagePath);
+      fs.copyFileSync(longSrc, stagePath);
       try {
         const fd = fs.openSync(stagePath, "r+");
         try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
       } catch { /* fsync best-effort: FAT/exFAT may not support it */ }
-      fs.renameSync(stagePath, f.dest);
+      fs.renameSync(stagePath, longDest);
       copiedBytes += f.size;
 
       const now = Date.now();

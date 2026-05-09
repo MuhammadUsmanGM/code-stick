@@ -4,13 +4,16 @@ import * as tar from "tar";
 import fs from "node:fs";
 import path from "node:path";
 import { log } from "../utils/logger.js";
+import { toLongPath } from "../utils/paths.js";
 
 export async function extractZipFile(zipPath: string, destDir: string): Promise<void> {
   fs.mkdirSync(destDir, { recursive: true });
   const resolvedDest = path.resolve(destDir);
   // extract-zip already rejects entries that resolve outside `dir` (CVE-2018-1002204
-  // hardening), so we just hand it a fully-resolved destination.
-  await extractZip(zipPath, { dir: resolvedDest });
+  // hardening), so we just hand it a fully-resolved destination. Use long-path
+  // form on Win32 so deeply-nested zip entries (e.g. node_modules) survive the
+  // MAX_PATH cap during extraction.
+  await extractZip(zipPath, { dir: toLongPath(resolvedDest) });
   log.dim(`Extracted ${path.basename(zipPath)}`);
 }
 
@@ -32,16 +35,16 @@ export function chmodExecRecursive(root: string): void {
   while (stack.length) {
     const dir = stack.pop()!;
     let entries: fs.Dirent[];
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+    try { entries = fs.readdirSync(toLongPath(dir), { withFileTypes: true }); }
     catch { continue; }
     for (const e of entries) {
       const full = path.join(dir, e.name);
       if (e.isDirectory()) {
         // dirs need +x for traversal
-        try { fs.chmodSync(full, 0o755); } catch { /* FAT/exFAT */ }
+        try { fs.chmodSync(toLongPath(full), 0o755); } catch { /* FAT/exFAT */ }
         stack.push(full);
       } else if (e.isFile()) {
-        try { fs.chmodSync(full, 0o755); } catch { /* FAT/exFAT */ }
+        try { fs.chmodSync(toLongPath(full), 0o755); } catch { /* FAT/exFAT */ }
       }
     }
   }
@@ -62,7 +65,7 @@ export async function extractTarFile(tarPath: string, destDir: string): Promise<
   let aborted: string | null = null;
   await tar.x({
     file: tarPath,
-    cwd: resolvedDest,
+    cwd: toLongPath(resolvedDest),
     strip: 0,
     strict: true,
     filter: (entryPath) => {
@@ -192,7 +195,7 @@ function shallowSearch(root: string, basename: string, maxDepth: number): string
   while (queue.length) {
     const { dir, depth } = queue.shift()!;
     let entries: fs.Dirent[];
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+    try { entries = fs.readdirSync(toLongPath(dir), { withFileTypes: true }); }
     catch { continue; }
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
@@ -206,7 +209,7 @@ function shallowSearch(root: string, basename: string, maxDepth: number): string
       if (entry.name.toLowerCase() !== basename.toLowerCase()) continue;
 
       let stat: fs.Stats;
-      try { stat = fs.statSync(full); } catch { continue; }
+      try { stat = fs.statSync(toLongPath(full)); } catch { continue; }
       if (stat.size < 16 * 1024) continue;
 
       let score = 0;

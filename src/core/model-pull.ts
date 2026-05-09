@@ -119,13 +119,19 @@ export async function removeModelTag(drivePath: string, tag: string): Promise<vo
  * Both forms appear during/after an aborted pull. Neither is referenced by
  * any manifest, so both are safe to delete unconditionally.
  */
+/** Exported for unit tests. True iff `name` matches the partial-blob naming
+ *  convention Ollama uses across versions. */
+export function isPartialBlobName(name: string): boolean {
+  return /[-.]partial(?:[-.]\d+)?$/.test(name);
+}
+
 function cleanPartialBlobs(dataDir: string): void {
   const blobsDir = path.join(dataDir, "blobs");
   if (!fs.existsSync(blobsDir)) return;
   let removed = 0;
   try {
     for (const name of fs.readdirSync(blobsDir)) {
-      if (!/[-.]partial(?:[-.]\d+)?$/.test(name)) continue;
+      if (!isPartialBlobName(name)) continue;
       try {
         fs.rmSync(path.join(blobsDir, name), { force: true });
         removed++;

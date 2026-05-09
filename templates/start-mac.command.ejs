@@ -5,6 +5,28 @@ set -e
 
 USB_ROOT="$(cd "$(dirname "$0")" && pwd)"
 
+# Gatekeeper "translocation": when a user double-clicks an unsigned app/binary
+# that arrived in a quarantined zip, macOS silently runs it from a randomized
+# read-only mount under /private/var/folders/.../AppTranslocation/. From there
+# the launcher's own $0 resolves to that mount, not the USB — every relative
+# path (engine/, opencode/, data/) is missing. We detect and abort with the
+# right-click-Open ritual rather than failing at "Missing engine binary" later.
+case "$USB_ROOT" in
+  /private/var/folders/*/AppTranslocation/*|*/AppTranslocation/*)
+    echo "[code-stick] macOS translocated this launcher to a read-only sandbox:"
+    echo "             $USB_ROOT"
+    echo
+    echo "  Fix once: in Finder, right-click start-mac.command → Open → Open."
+    echo "  This bypasses Gatekeeper translocation for this binary; future"
+    echo "  double-clicks will run from the USB directly."
+    echo
+    echo "  Or, drag the USB mount out of the Downloads/quarantined folder"
+    echo "  (if you copied it there) before double-clicking."
+    read -n 1 -s -r -p "Press any key to close..."
+    exit 1
+    ;;
+esac
+
 # Pick darwin-arm64 vs darwin-x64 based on host arch.
 ARCH="$(uname -m)"
 if [ "$ARCH" = "arm64" ]; then

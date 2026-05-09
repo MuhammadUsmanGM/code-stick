@@ -87,11 +87,16 @@ Available model IDs: `qwen25-coder-7b`, `deepseek-coder-6_7b`, `codegemma-7b`, `
 
 ### macOS: "ollama can't be opened, developer cannot be verified"
 
-Gatekeeper quarantines binaries that arrived via "external media." The macOS launcher strips the `com.apple.quarantine` xattr automatically before launch. If you somehow still hit the dialog:
+Gatekeeper quarantines unsigned binaries that arrived via "external media." We are not yet notarized (notarization needs an Apple Developer Program account — on the roadmap). Until then, the supported workflow on macOS Sonoma+ is:
 
-```bash
-xattr -dr com.apple.quarantine /Volumes/<your-usb>
-```
+1. **Right-click `start-mac.command` → Open → Open.** This adds a per-binary exception so future double-clicks work.
+2. If the launcher exits with a "translocated to a read-only sandbox" message, that's macOS App Translocation copying the launcher to a randomized scratch mount before run. The right-click-Open ritual above also clears it.
+3. As a last resort:
+   ```bash
+   xattr -dr com.apple.quarantine /Volumes/<your-usb>
+   ```
+
+Neither launchers nor `code-stick install` are affected — only the per-machine first-launch dialog. `code-stick doctor` runs the same probes from a CLI context where Gatekeeper does not apply.
 
 ### Linux/macOS: "Permission denied" launching from FAT32/exFAT
 
@@ -103,6 +108,29 @@ bash start-mac.command
 ```
 
 For long-term use, format the stick as **NTFS** (Windows + Linux) or **APFS/HFS+** (macOS-only) — or **exFAT** if you accept the `bash` workaround for cross-OS use.
+
+### Windows: install aborts with "MAX_PATH risk"
+
+Windows caps individual paths at 260 chars by default. Pre-staged opencode
+dependencies live deep under `<USB>\cache\opencode\node_modules\@ai-sdk\
+openai-compatible\dist\internal\...`, and a USB mounted at a long path
+(e.g. `C:\Users\Long Name\Downloads\code-stick-stage\`) overflows the limit
+mid-install. The installer detects this up-front and refuses to start.
+
+Three fixes, in order of preference:
+
+1. **Mount the USB at a short path.** Assign a single drive letter via Disk
+   Management, or `subst X: <current-path>` in Command Prompt, then re-run
+   with `--target X:\`.
+2. **Enable Win10 1607+ long paths system-wide** (PowerShell as Admin):
+   ```powershell
+   New-ItemProperty -Path HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem `
+     -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force
+   ```
+   Reboot, then re-run the installer.
+3. **Re-run from a shorter working directory.** The installer's host-side
+   stage dir lives under `%TEMP%`; if your user profile path is itself long,
+   point `TMP`/`TEMP` at `C:\t` and retry.
 
 ### Ollama port 11434 already in use
 
@@ -131,6 +159,22 @@ CODE_STICK_DEBUG=1 code-stick install --target E:\ --no-cleanup
 ```
 
 Launchers spawn `ollama serve` from the USB with `OLLAMA_MODELS=<USB>/data` and `OLLAMA_HOST=127.0.0.1:11434`, redirect opencode's config dir at `<USB>/config`, then run opencode in the foreground. On exit, only the Ollama process they spawned is killed (by PID — never `taskkill /IM ollama.exe`).
+
+## Development
+
+```bash
+npm install
+npm run typecheck     # tsc --noEmit
+npm test              # vitest run (unit + launcher snapshot tests)
+npm run build         # tsup → dist/cli.js
+npm run smoke:docker  # full end-to-end install + launch in Linux Docker (needs network)
+```
+
+`scripts/smoke.mjs` is a Linux-x64 end-to-end smoke: build → install with
+`phi3-mini` (smallest model) → boot Ollama → probe `/api/version` → smoke
+`opencode --version`. macOS / Windows smokes need licensed CI runners and
+are not part of the default `smoke:docker` flow — run the launcher manually
+on each target instead.
 
 ## License
 

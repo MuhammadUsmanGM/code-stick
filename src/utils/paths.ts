@@ -3,6 +3,34 @@ import path from "node:path";
 import type { Target } from "../catalog/targets.js";
 
 /**
+ * Win32 MAX_PATH=260 has bitten us in pre-staged node_modules trees: a USB
+ * mounted at a deep mount point plus `cache/opencode/node_modules/@ai-sdk/
+ * openai-compatible/dist/internal/...` blows past 260 chars and fs ops fail
+ * with ENAMETOOLONG. The `\\?\` namespace prefix lifts the limit to ~32K
+ * chars per segment for individual fs calls.
+ *
+ * Rules for a safe prefix:
+ *   - only on Win32
+ *   - only for ABSOLUTE paths (relative paths must remain relative)
+ *   - skip if already prefixed with \\?\ or \\.\
+ *   - UNC paths use \\?\UNC\server\share form; we leave plain UNC alone since
+ *     code-stick targets local USB mounts (drive-letter paths)
+ *   - normalize forward slashes — \\?\ namespace is literal, no path resolver
+ */
+export function toLongPath(p: string): string {
+  if (process.platform !== "win32") return p;
+  if (!p) return p;
+  if (p.startsWith("\\\\?\\") || p.startsWith("\\\\.\\")) return p;
+  if (!path.isAbsolute(p)) return p;
+  const normalized = path.normalize(p).replace(/\//g, "\\");
+  if (normalized.startsWith("\\\\")) {
+    // UNC: \\server\share\... → \\?\UNC\server\share\...
+    return `\\\\?\\UNC\\${normalized.slice(2)}`;
+  }
+  return `\\\\?\\${normalized}`;
+}
+
+/**
  * Layout written to the USB:
  *   <root>/code-stick.json              manifest
  *   <root>/engine/<target>/             ollama binary for each target

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { log } from "../utils/logger.js";
+import { toLongPath } from "../utils/paths.js";
 
 /**
  * Pre-stage opencode's runtime npm dependency on the USB so the standalone
@@ -111,9 +112,10 @@ export function prestageOpencodeProviders(opencodeCacheDir: string): PrestageRes
   const resolvedVersions: Record<string, string> = {};
   for (const pkg of OPENCODE_NPM_PROVIDERS) {
     const target = path.join(opencodeCacheDir, "node_modules", pkg, "package.json");
-    if (!fs.existsSync(target)) { missing.push(pkg); continue; }
+    const longTarget = toLongPath(target);
+    if (!fs.existsSync(longTarget)) { missing.push(pkg); continue; }
     try {
-      const inner = JSON.parse(fs.readFileSync(target, "utf-8")) as { version?: unknown };
+      const inner = JSON.parse(fs.readFileSync(longTarget, "utf-8")) as { version?: unknown };
       if (typeof inner.version === "string" && inner.version.length > 0) {
         resolvedVersions[pkg] = inner.version;
       } else {
@@ -173,7 +175,7 @@ function scanNativeArtefacts(nodeModulesDir: string): string[] {
   const walk = (dir: string, depth: number) => {
     if (depth > MAX_DEPTH || hits.length > 50) return;
     let entries: fs.Dirent[];
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    try { entries = fs.readdirSync(toLongPath(dir), { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
       const full = path.join(dir, e.name);
       if (e.isDirectory()) {
@@ -185,6 +187,6 @@ function scanNativeArtefacts(nodeModulesDir: string): string[] {
       }
     }
   };
-  if (fs.existsSync(nodeModulesDir)) walk(nodeModulesDir, 0);
+  if (fs.existsSync(toLongPath(nodeModulesDir))) walk(nodeModulesDir, 0);
   return hits;
 }

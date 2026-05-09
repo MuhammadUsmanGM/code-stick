@@ -441,7 +441,7 @@ function detectFilesystemLinux(drivePath: string): string | null {
   } catch { return null; }
 }
 
-function unescapeMount(s: string): string {
+export function unescapeMount(s: string): string {
   // /proc/mounts escapes 0x00-0x20, 0x5c (\), 0x09 (tab), space etc. as \NNN.
   return s.replace(/\\([0-9]{3})/g, (_m, oct: string) => String.fromCharCode(parseInt(oct, 8)));
 }
