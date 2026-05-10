@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import { log } from "./utils/logger.js";
 import { enableDoubleCtrlC } from "./utils/exit-guard.js";
+import { buildBugReport, bugReportRemediation } from "./utils/bug-report.js";
 import { installCommand } from "./commands/install.js";
 import { startCommand } from "./commands/start.js";
 import { statusCommand } from "./commands/status.js";
@@ -95,6 +96,20 @@ main().catch((err) => {
   log.error(err instanceof Error ? err.message : String(err));
   if (process.env.CODE_STICK_DEBUG === "1" && err instanceof Error && err.stack) {
     console.error(err.stack);
+  }
+  // Don't generate bug reports for user-cancellation paths (Ctrl+C, prompt
+  // step-back) or for already-cleanly-handled domain errors that the
+  // commands intentionally throw with remediation lines. The marker is the
+  // CODE_STICK_NO_REPORT env var that command code can set when re-throwing.
+  if (process.env.CODE_STICK_NO_REPORT !== "1") {
+    try {
+      const cmd = (process.argv[2] || "unknown").replace(/[^a-z0-9-]/gi, "");
+      const report = buildBugReport({ command: cmd, err });
+      log.blank();
+      for (const line of bugReportRemediation(report)) log.dim(line);
+    } catch {
+      // Bug-report-generation must never mask the original error.
+    }
   }
   process.exit(1);
 });

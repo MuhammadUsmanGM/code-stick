@@ -22,19 +22,25 @@ describe("looksLikeSystemPath", () => {
     Object.defineProperty(process, "platform", { value: origPlatform });
   });
 
-  it("rejects POSIX root", () => {
+  // On Windows hosts node:path resolves "/" to "C:\" regardless of the
+  // process.platform mock, so the POSIX branch under test never sees a
+  // POSIX-shaped argument. Skip the POSIX cases on win32 — the Linux/Mac
+  // CI runners cover them.
+  const itPosix = process.platform === "win32" ? it.skip : it;
+
+  itPosix("rejects POSIX root", () => {
     Object.defineProperty(process, "platform", { value: "linux" });
     expect(looksLikeSystemPath("/")).toMatch(/filesystem root/);
   });
 
-  it("rejects POSIX system dirs", () => {
+  itPosix("rejects POSIX system dirs", () => {
     Object.defineProperty(process, "platform", { value: "linux" });
     expect(looksLikeSystemPath("/usr/local/bin")).toMatch(/system directory/);
     expect(looksLikeSystemPath("/etc")).toMatch(/system directory/);
     expect(looksLikeSystemPath("/var/log/x")).toMatch(/system directory/);
   });
 
-  it("allows ordinary paths", () => {
+  itPosix("allows ordinary paths", () => {
     Object.defineProperty(process, "platform", { value: "linux" });
     expect(looksLikeSystemPath("/home/user/usb")).toBeNull();
     expect(looksLikeSystemPath("/media/usb")).toBeNull();

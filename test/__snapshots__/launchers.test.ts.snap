@@ -1,0 +1,363 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renderLaunchers > matches the linux launcher snapshot 1`] = `
+"#!/usr/bin/env bash
+# Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a
+# code-stick launcher — Linux (x64 + arm64). Generated at install time.
+set -e
+
+USB_ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+ARCH="$(uname -m)"
+case "$ARCH" in
+  aarch64|arm64) TARGET="linux-arm64" ;;
+  x86_64|amd64)  TARGET="linux-x64" ;;
+  *)
+    echo "[code-stick] Unsupported Linux architecture: $ARCH"
+    exit 1
+    ;;
+esac
+
+OLLAMA_BIN="$USB_ROOT/engine/$TARGET/bin/ollama"
+OPENCODE_BIN="$USB_ROOT/opencode/$TARGET/opencode"
+
+# FAT32/exFAT can't store the +x bit, so binaries lose executability when the
+# stick is mounted on Linux. Best-effort chmod (no-op on FAT — we'll fall back
+# to invoking via the dynamic linker if needed).
+chmod +x "$OLLAMA_BIN" "$OPENCODE_BIN" 2>/dev/null || true
+
+if [ ! -f "$OLLAMA_BIN" ]; then
+  echo "[code-stick] Missing: $OLLAMA_BIN"
+  echo "[code-stick] Re-run: npx code-stick install --target \\"$USB_ROOT\\""
+  exit 1
+fi
+if [ ! -f "$OPENCODE_BIN" ]; then
+  echo "[code-stick] Missing: $OPENCODE_BIN"
+  echo "[code-stick] Re-run: npx code-stick install --target \\"$USB_ROOT\\""
+  exit 1
+fi
+if [ ! -x "$OLLAMA_BIN" ] || [ ! -x "$OPENCODE_BIN" ]; then
+  echo "[code-stick] Binaries are not executable (exec bit lost — typical for FAT32/exFAT USBs)."
+  # \`bash "$0"\` does NOT fix this — the script still tries to execve the
+  # binary and hits ENOEXEC. The two real fixes:
+  MOUNT_DEV="$(findmnt -no SOURCE --target "$USB_ROOT" 2>/dev/null || true)"
+  MOUNT_POINT="$(findmnt -no TARGET --target "$USB_ROOT" 2>/dev/null || true)"
+  echo
+  echo "  Option 1 (recommended): remount the USB with exec perms."
+  if [ -n "$MOUNT_DEV" ] && [ -n "$MOUNT_POINT" ]; then
+    echo "    sudo mount -o remount,exec,uid=$(id -u),gid=$(id -g) \\"$MOUNT_DEV\\" \\"$MOUNT_POINT\\""
+  else
+    echo "    sudo mount -o remount,exec <device> <mountpoint>"
+  fi
+  echo
+  echo "  Option 2: copy the binaries to a real filesystem (~/.local/bin) and run from there."
+  echo "    cp \\"$OLLAMA_BIN\\" \\"$OPENCODE_BIN\\" ~/.local/bin/ && chmod +x ~/.local/bin/{ollama,opencode}"
+  echo
+  echo "  For long-term use, format the stick as NTFS or ext4 instead of FAT/exFAT."
+  exit 1
+fi
+
+export OLLAMA_MODELS="$USB_ROOT/data"
+export OLLAMA_HOST="127.0.0.1:11434"
+# Pin opencode's config + caches onto the USB so nothing leaks to the host.
+export XDG_CONFIG_HOME="$USB_ROOT/config"
+export XDG_CACHE_HOME="$USB_ROOT/cache"
+export XDG_DATA_HOME="$USB_ROOT/data/xdg"
+export XDG_STATE_HOME="$USB_ROOT/state"
+export OPENCODE_DISABLE_AUTOUPDATE=1
+export OPENCODE_DISABLE_WATCHER=1
+export OPENCODE_CONFIG="$USB_ROOT/config/opencode/opencode.json"
+# Make bundled libs (if any) discoverable for the Ollama Linux build.
+export LD_LIBRARY_PATH="$USB_ROOT/engine/$TARGET/lib:\${LD_LIBRARY_PATH:-}"
+
+cleanup() {
+  if [ -n "\${OLLAMA_PID:-}" ]; then
+    echo
+    echo "[code-stick] Stopping Ollama (PID $OLLAMA_PID)..."
+    kill "$OLLAMA_PID" 2>/dev/null || true
+    wait "$OLLAMA_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+# Refuse to start if 11434 is already bound — we won't fight another Ollama.
+if command -v ss >/dev/null 2>&1; then
+  if ss -lnt 2>/dev/null | awk '{print $4}' | grep -qE '(:|\\.)11434$'; then
+    echo "[code-stick] Port 11434 is already in use. Stop the other Ollama/process and retry."
+    exit 1
+  fi
+elif command -v lsof >/dev/null 2>&1; then
+  if lsof -nP -iTCP:11434 -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "[code-stick] Port 11434 is already in use. Stop the other Ollama/process and retry."
+    exit 1
+  fi
+elif (echo > /dev/tcp/127.0.0.1/11434) >/dev/null 2>&1; then
+  echo "[code-stick] Port 11434 is already in use. Stop the other Ollama/process and retry."
+  exit 1
+fi
+
+echo "[code-stick] Starting Ollama from USB ($TARGET)..."
+"$OLLAMA_BIN" serve > "/tmp/code-stick-ollama.log" 2>&1 &
+OLLAMA_PID=$!
+
+# Wait for Ollama port (up to ~30s).
+READY=
+for i in $(seq 1 60); do
+  if command -v curl >/dev/null 2>&1; then
+    if curl -fsS --max-time 1 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+      READY=1; break
+    fi
+  else
+    if (echo > /dev/tcp/127.0.0.1/11434) >/dev/null 2>&1; then
+      READY=1; break
+    fi
+  fi
+  sleep 0.5
+done
+
+if [ -z "$READY" ]; then
+  echo "[code-stick] Ollama did not start in time. Check /tmp/code-stick-ollama.log"
+  exit 1
+fi
+
+echo "[code-stick] Launching opencode (model: qwen2.5-coder:7b)..."
+echo
+"$OPENCODE_BIN"
+"
+`;
+
+exports[`renderLaunchers > matches the mac launcher snapshot 1`] = `
+"#!/usr/bin/env bash
+# Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a
+# code-stick launcher — macOS (Apple Silicon + Intel). Generated at install time.
+set -e
+
+USB_ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+# Gatekeeper "translocation": when a user double-clicks an unsigned app/binary
+# that arrived in a quarantined zip, macOS silently runs it from a randomized
+# read-only mount under /private/var/folders/.../AppTranslocation/. From there
+# the launcher's own $0 resolves to that mount, not the USB — every relative
+# path (engine/, opencode/, data/) is missing. We detect and abort with the
+# right-click-Open ritual rather than failing at "Missing engine binary" later.
+case "$USB_ROOT" in
+  /private/var/folders/*/AppTranslocation/*|*/AppTranslocation/*)
+    echo "[code-stick] macOS translocated this launcher to a read-only sandbox:"
+    echo "             $USB_ROOT"
+    echo
+    echo "  Fix once: in Finder, right-click start-mac.command → Open → Open."
+    echo "  This bypasses Gatekeeper translocation for this binary; future"
+    echo "  double-clicks will run from the USB directly."
+    echo
+    echo "  Or, drag the USB mount out of the Downloads/quarantined folder"
+    echo "  (if you copied it there) before double-clicking."
+    read -n 1 -s -r -p "Press any key to close..."
+    exit 1
+    ;;
+esac
+
+# Pick darwin-arm64 vs darwin-x64 based on host arch.
+ARCH="$(uname -m)"
+if [ "$ARCH" = "arm64" ]; then
+  TARGET="darwin-arm64"
+else
+  TARGET="darwin-x64"
+fi
+
+OLLAMA_BIN="$USB_ROOT/engine/$TARGET/ollama"
+OPENCODE_BIN="$USB_ROOT/opencode/$TARGET/opencode"
+
+# macOS quarantines anything that arrived via "external media" or download.
+# Strip the xattr from the binaries we're about to run — silent if no quarantine.
+xattr -dr com.apple.quarantine "$USB_ROOT/engine/$TARGET" 2>/dev/null || true
+xattr -dr com.apple.quarantine "$USB_ROOT/opencode/$TARGET" 2>/dev/null || true
+chmod +x "$OLLAMA_BIN" "$OPENCODE_BIN" 2>/dev/null || true
+
+if [ ! -f "$OLLAMA_BIN" ]; then
+  echo "[code-stick] Missing: $OLLAMA_BIN"
+  echo "[code-stick] Re-run: npx code-stick install --target \\"$USB_ROOT\\""
+  read -n 1 -s -r -p "Press any key to close..."
+  exit 1
+fi
+if [ ! -f "$OPENCODE_BIN" ]; then
+  echo "[code-stick] Missing: $OPENCODE_BIN"
+  echo "[code-stick] Re-run: npx code-stick install --target \\"$USB_ROOT\\""
+  read -n 1 -s -r -p "Press any key to close..."
+  exit 1
+fi
+
+export OLLAMA_MODELS="$USB_ROOT/data"
+export OLLAMA_HOST="127.0.0.1:11434"
+# Pin opencode's config + caches onto the USB so nothing leaks to the host.
+# (xdg-basedir, used by opencode, honors these on macOS too.)
+export XDG_CONFIG_HOME="$USB_ROOT/config"
+export XDG_CACHE_HOME="$USB_ROOT/cache"
+export XDG_DATA_HOME="$USB_ROOT/data/xdg"
+export XDG_STATE_HOME="$USB_ROOT/state"
+export OPENCODE_DISABLE_AUTOUPDATE=1
+export OPENCODE_DISABLE_WATCHER=1
+export OPENCODE_CONFIG="$USB_ROOT/config/opencode/opencode.json"
+
+cleanup() {
+  if [ -n "\${OLLAMA_PID:-}" ]; then
+    echo
+    echo "[code-stick] Stopping Ollama (PID $OLLAMA_PID)..."
+    kill "$OLLAMA_PID" 2>/dev/null || true
+    wait "$OLLAMA_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+# Refuse to start if 11434 is already bound — we won't fight another Ollama.
+# Try lsof first (always present on macOS), fall back to /dev/tcp probe.
+if command -v lsof >/dev/null 2>&1; then
+  if lsof -nP -iTCP:11434 -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "[code-stick] Port 11434 is already in use. Stop the other Ollama/process and retry."
+    exit 1
+  fi
+elif (echo > /dev/tcp/127.0.0.1/11434) >/dev/null 2>&1; then
+  echo "[code-stick] Port 11434 is already in use. Stop the other Ollama/process and retry."
+  exit 1
+fi
+
+echo "[code-stick] Starting Ollama from USB ($TARGET)..."
+"$OLLAMA_BIN" serve > "/tmp/code-stick-ollama.log" 2>&1 &
+OLLAMA_PID=$!
+
+# Wait for Ollama port (up to ~30s). Prefer curl, fall back to /dev/tcp for
+# minimal/stripped environments where curl isn't on PATH.
+READY=
+for i in $(seq 1 60); do
+  if command -v curl >/dev/null 2>&1; then
+    if curl -fsS --max-time 1 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
+      READY=1; break
+    fi
+  else
+    if (echo > /dev/tcp/127.0.0.1/11434) >/dev/null 2>&1; then
+      READY=1; break
+    fi
+  fi
+  sleep 0.5
+done
+
+if [ -z "$READY" ]; then
+  echo "[code-stick] Ollama did not start in time. Check /tmp/code-stick-ollama.log"
+  exit 1
+fi
+
+echo "[code-stick] Launching opencode (model: qwen2.5-coder:7b)..."
+echo
+"$OPENCODE_BIN"
+"
+`;
+
+exports[`renderLaunchers > matches the windows launcher snapshot 1`] = `
+"@echo off
+REM Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a
+REM code-stick launcher — Windows x64. Generated at install time; do not edit.
+setlocal ENABLEDELAYEDEXPANSION
+
+REM Resolve USB root (this script lives at <USB>\\start-windows.bat).
+set "USB_ROOT=%~dp0"
+if "%USB_ROOT:~-1%"=="\\" set "USB_ROOT=%USB_ROOT:~0,-1%"
+
+set "OLLAMA_BIN=%USB_ROOT%\\engine\\windows-x64\\ollama.exe"
+set "OPENCODE_BIN=%USB_ROOT%\\opencode\\windows-x64\\opencode.exe"
+set "OLLAMA_MODELS=%USB_ROOT%\\data"
+set "OLLAMA_HOST=127.0.0.1:11434"
+REM Pin opencode's config + caches onto the USB so nothing leaks to the host.
+REM xdg-basedir (the Node module opencode uses) honors these on Windows too,
+REM and APPDATA/LOCALAPPDATA are the Windows-native fallbacks for the same dirs.
+set "APPDATA=%USB_ROOT%\\config"
+set "LOCALAPPDATA=%USB_ROOT%\\cache"
+set "XDG_CONFIG_HOME=%USB_ROOT%\\config"
+set "XDG_CACHE_HOME=%USB_ROOT%\\cache"
+set "XDG_DATA_HOME=%USB_ROOT%\\data\\xdg"
+set "XDG_STATE_HOME=%USB_ROOT%\\state"
+REM Skip opencode's autoupdate check + filesystem watcher (USB I/O is slow).
+set "OPENCODE_DISABLE_AUTOUPDATE=1"
+set "OPENCODE_DISABLE_WATCHER=1"
+REM Pin the config file path explicitly — opencode honors $OPENCODE_CONFIG.
+set "OPENCODE_CONFIG=%USB_ROOT%\\config\\opencode\\opencode.json"
+
+if not exist "%OLLAMA_BIN%" (
+  echo [code-stick] Missing engine binary: %OLLAMA_BIN%
+  echo [code-stick] Re-run: npx code-stick install --target "%USB_ROOT%"
+  pause
+  exit /b 1
+)
+if not exist "%OPENCODE_BIN%" (
+  echo [code-stick] Missing opencode binary: %OPENCODE_BIN%
+  echo [code-stick] Re-run: npx code-stick install --target "%USB_ROOT%"
+  pause
+  exit /b 1
+)
+
+REM Refuse to start if 11434 is already bound — we won't fight another Ollama
+REM and we don't want to silently fail the wait loop 30s later.
+powershell -NoProfile -Command "try { (New-Object Net.Sockets.TcpClient).Connect('127.0.0.1',11434); exit 0 } catch { exit 1 }" >nul 2>&1
+if %ERRORLEVEL%==0 (
+  echo [code-stick] Port 11434 is already in use. Stop the other Ollama/process and retry.
+  pause
+  exit /b 1
+)
+
+echo [code-stick] Starting Ollama from USB...
+REM Capture the PID of the ollama process we spawn so we kill only ours on
+REM exit — never touch a pre-existing ollama.exe the user might be running.
+REM
+REM We spawn via PowerShell -PassThru and write $p.Id to a temp file. Parsing
+REM stdout via \`for /f\` is fragile: any banner / profile output / AV injection
+REM corrupts the captured PID. Writing to a file and reading with \`set /p\`
+REM survives that.
+set "OLLAMA_PID="
+set "OLLAMA_PID_FILE=%TEMP%\\code-stick-ollama.pid"
+del /q "%OLLAMA_PID_FILE%" >nul 2>&1
+powershell -NoProfile -Command "$p = Start-Process -FilePath '%OLLAMA_BIN%' -ArgumentList 'serve' -WindowStyle Hidden -PassThru -RedirectStandardOutput '%TEMP%\\code-stick-ollama.log' -RedirectStandardError '%TEMP%\\code-stick-ollama.err'; [IO.File]::WriteAllText('%OLLAMA_PID_FILE%', $p.Id)" >nul 2>&1
+if exist "%OLLAMA_PID_FILE%" set /p OLLAMA_PID=<"%OLLAMA_PID_FILE%"
+del /q "%OLLAMA_PID_FILE%" >nul 2>&1
+if not defined OLLAMA_PID (
+  echo [code-stick] Failed to spawn Ollama. See %TEMP%\\code-stick-ollama.err
+  pause
+  exit /b 1
+)
+
+REM Wait for Ollama HTTP readiness (up to ~30s). Probe \`/api/version\` rather
+REM than a raw TCP connect — Ollama opens the listening socket *before* the
+REM HTTP handler is wired up, so a TCP-only probe returns ready prematurely
+REM and opencode hits a 503 on its first request, surfacing as a confusing
+REM "model not found". Match start-mac.command and start-linux.sh.
+set /a TRIES=0
+:waitloop
+set /a TRIES+=1
+powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:11434/api/version' -UseBasicParsing -TimeoutSec 1; if ($r.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
+if %ERRORLEVEL%==0 goto ready
+if %TRIES% GEQ 60 goto timeout
+timeout /t 1 /nobreak >nul
+goto waitloop
+
+:timeout
+echo [code-stick] Ollama did not start in time. Check %TEMP%\\code-stick-ollama.log
+goto cleanup
+
+:ready
+echo [code-stick] Launching opencode (model: qwen2.5-coder:7b)...
+echo.
+"%OPENCODE_BIN%"
+
+:cleanup
+echo.
+if defined OLLAMA_PID (
+  echo [code-stick] Stopping Ollama PID %OLLAMA_PID% and child workers...
+  REM \`taskkill /T\` follows the Job-object / parent-PID chain, but Ollama spawns
+  REM \`ollama_llama_server.exe\` workers that aren't always re-parented under
+  REM the launcher PID. Walk Win32_Process via PowerShell to enumerate the
+  REM full descendant tree (any depth) before falling back to taskkill.
+  powershell -NoProfile -Command "$root=[int]'%OLLAMA_PID%'; $all=Get-CimInstance Win32_Process; $kill=New-Object System.Collections.Generic.List[int]; $kill.Add($root); $stack=New-Object System.Collections.Generic.Stack[int]; $stack.Push($root); while($stack.Count -gt 0){$p=$stack.Pop(); foreach($c in $all|Where-Object{$_.ParentProcessId -eq $p}){if(-not $kill.Contains([int]$c.ProcessId)){$kill.Add([int]$c.ProcessId); $stack.Push([int]$c.ProcessId)}}}; foreach($pid in $kill){try{Stop-Process -Id $pid -Force -ErrorAction Stop}catch{}}" >nul 2>&1
+  REM Belt-and-braces: taskkill the original PID tree in case anything slipped.
+  taskkill /PID %OLLAMA_PID% /T /F >nul 2>&1
+)
+endlocal
+exit /b 0
+"
+`;

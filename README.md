@@ -144,6 +144,19 @@ CODE_STICK_DEBUG=1 code-stick install --target E:\ --no-cleanup
 
 `--no-cleanup` keeps `.code-stick-tmp/` and the downloaded archives so you can inspect them.
 
+### Reporting a bug
+
+When `code-stick` crashes it writes a **redacted** report to your OS temp dir
+(e.g. `%TEMP%\code-stick\bug-report-install-2026-...md`). The path is printed
+to your terminal. The report has your home dir, hostname, USB path, and
+common token shapes scrubbed before it is written. Open it, eyeball it, then
+attach it to a new issue at
+[github.com/MuhammadUsmanGM/code-stick/issues](https://github.com/MuhammadUsmanGM/code-stick/issues).
+
+We do **not** ship telemetry. No background HTTP calls, no auto-reporting.
+Bug submission is fully manual and entirely under your control. See
+[`docs/SECURITY.md`](docs/SECURITY.md) for the full trust model.
+
 ## How it works
 
 ```
