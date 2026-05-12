@@ -1,21 +1,58 @@
 # code-stick
 
-> **Portable AI coding agent on a USB drive.** Plug in. Launch [opencode](https://opencode.ai). Code offline.
-> One stick boots on **Windows, macOS (Apple Silicon + Intel), Linux (x64 + ARM64)**.
+> **Plug in a USB. Get an offline AI coding agent on any laptop.**
+> One stick. Five targets — **Windows, macOS (Apple Silicon + Intel), Linux (x64 + ARM64)**. Zero install on the host.
+
+[![npm](https://img.shields.io/npm/v/code-stick.svg)](https://www.npmjs.com/package/code-stick)
+[![license](https://img.shields.io/npm/l/code-stick.svg)](./LICENSE)
+[![node](https://img.shields.io/node/v/code-stick.svg)](https://nodejs.org)
+
+![code-stick demo](./public/code-stick.gif)
 
 ```bash
 npx code-stick install
 ```
 
-The CLI will:
+## Why
 
-1. Auto-detect your USB drive (or take `--target <path>`)
-2. Let you pick a coding model
-3. Ask **Fast vs Direct** install mode (see below)
-4. Download Ollama + opencode binaries for **all 5 targets** onto the stick
-5. Pull the model into a USB-local Ollama store (`<USB>/data`) — host temp is auto-cleaned
-6. Write `start-windows.bat`, `start-mac.command`, `start-linux.sh` at the USB root
-7. Clean up installer archives and temp dirs
+You want an AI coding agent that works on:
+
+- **Airgapped or restricted machines** — banks, defense, hospitals, lab VMs.
+- **Shared / borrowed laptops** — internships, school computers, client sites.
+- **Spotty wifi** — flights, trains, cafes, conferences.
+- **Privacy-sensitive code** — closed-source clients, NDAs, personal projects.
+
+Cloud agents won't work. Installing Ollama + a 5 GB model on every machine you touch won't either. code-stick is the in-between: install once on a USB, then run the agent from the stick on whatever laptop is in front of you. Host stays clean.
+
+Under the hood it's [opencode](https://opencode.ai) (terminal coding agent) talking to [Ollama](https://ollama.com) (local model runner), both pre-built for every target, both serving from the USB on `127.0.0.1:11434`. Quit the agent, the Ollama process dies, the host has no residue.
+
+## Status
+
+**v0.1.0 — early release.** What works today:
+
+- Full install flow on Windows, macOS, Linux (x64 + ARM64) — tested manually per target.
+- Docker-based Linux smoke test in CI (`npm run smoke:docker`).
+- Vitest unit suite for launcher rendering, lock files, manifest, MAX_PATH preflight.
+- Bug reports auto-write a **redacted** crash report to `%TEMP%`; manual upload only.
+- No telemetry. No background HTTP. See [`docs/SECURITY.md`](docs/SECURITY.md).
+
+Rough edges:
+
+- macOS binaries are **not yet notarized** — first-launch Gatekeeper dialog, workaround in Troubleshooting.
+- Windows long-path installs need either a short USB mount or `LongPathsEnabled` — the installer detects and bails clearly.
+- No Windows / macOS CI runners yet — those targets rely on manual smokes.
+
+File an issue or open a PR if you hit anything: [github.com/MuhammadUsmanGM/code-stick/issues](https://github.com/MuhammadUsmanGM/code-stick/issues).
+
+## What the installer does
+
+1. Auto-detects your USB drive (or takes `--target <path>`).
+2. Lets you pick a coding model.
+3. Asks **Fast vs Direct** install mode (see below).
+4. Downloads Ollama + opencode binaries for **all 5 targets** onto the stick.
+5. Pulls the model into a USB-local Ollama store (`<USB>/data`) — host temp is auto-cleaned.
+6. Writes `start-windows.bat`, `start-mac.command`, `start-linux.sh` at the USB root.
+7. Cleans up installer archives and temp dirs.
 
 Press **Esc** at any prompt to step back.
 
