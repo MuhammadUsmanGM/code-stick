@@ -9,7 +9,12 @@ import {
   getFreeSpaceGB, sameDevice,
 } from "../core/usb.js";
 import { usbPaths } from "../utils/paths.js";
-import { ALL_TARGETS } from "../catalog/targets.js";
+import {
+  ALL_TARGETS,
+  isFullPortability,
+  parseTargetsFlag,
+  type Target,
+} from "../catalog/targets.js";
 import { MODELS, findModel, type CodingModel } from "../catalog/models.js";
 import { renderLaunchers } from "../core/launcher-gen.js";
 import { saveManifest, loadManifest, type Manifest } from "../state/manifest.js";
@@ -29,6 +34,12 @@ interface InstallOptions {
   yes?: boolean;
   // Commander's --no-cleanup flag flips this to false; default (omitted) is true.
   cleanup?: boolean;
+  /**
+   * Raw value of --targets. Undefined when the flag was omitted (meaning
+   * "all targets, fully portable"). Parsed by parseTargetsFlag(); see that
+   * function for accepted tokens.
+   */
+  targets?: string;
 }
 
 type InstallMode = "fast" | "slow";
@@ -45,6 +56,41 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   setupShutdownHooks();
   log.banner("Installer");
   log.dim("(Press Esc at any step to go back)");
+
+  // Parse --targets up front so a typo surfaces before we touch any USB.
+  // Default (flag omitted or "all") gives the full ALL_TARGETS set — that's
+  // the product's core promise and must remain the default forever.
+  let selectedTargets: Target[];
+  try {
+    selectedTargets = parseTargetsFlag(opts.targets);
+  } catch (err) {
+    // Mark this as a domain error so cli.ts skips the bug-report path.
+    process.env.CODE_STICK_NO_REPORT = "1";
+    throw err;
+  }
+  const fullPortability = isFullPortability(selectedTargets);
+  if (!fullPortability) {
+    log.blank();
+    log.warn("⚠  Reduced-portability install");
+    log.dim(`This stick will only boot on: ${selectedTargets.join(", ")}`);
+    log.dim("Other OSes will be missing binaries. To make it fully portable later, run:");
+    log.dim("  code-stick add-targets all");
+    log.dim("Or re-install without --targets to stage every OS in one pass.");
+    log.blank();
+    if (!opts.yes) {
+      const ans = await promptWithEsc<{ proceed: boolean }>([
+        {
+          type: "confirm", name: "proceed",
+          message: "Continue with this reduced subset?",
+          default: false,
+        },
+      ]);
+      if (!ans || !ans.proceed) {
+        log.info("Cancelled.");
+        return;
+      }
+    }
+  }
 
   // Step machine — Esc at any step rewinds to the previous one.
   type Step = "drive" | "model" | "speed" | "space" | "done";
@@ -258,9 +304,9 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
 
   const totalSteps = 5;
   log.blank();
-  log.step(1, totalSteps, `Staging binaries for ${ALL_TARGETS.length} target(s)...`);
+  log.step(1, totalSteps, `Staging binaries for ${selectedTargets.length} target(s)...`);
   log.step(2, totalSteps, "Atomic swap into <USB>/engine and <USB>/opencode...");
-  await stageAndSwapBinaries(drivePath, tempDir);
+  await stageAndSwapBinaries(drivePath, tempDir, selectedTargets);
 
   log.step(3, totalSteps, `Pulling model ${model!.tag} (${installMode === "fast" ? "stage on host" : "direct to USB"})...`);
   try {
@@ -279,7 +325,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     installedAt: now,
     models: [{ id: model!.id, tag: model!.tag, addedAt: now }],
     defaultModelId: model!.id,
-    targets: [...ALL_TARGETS],
+    targets: [...selectedTargets],
     ollamaVersions: { host: OLLAMA_VERSIONS.host, linux: OLLAMA_VERSIONS.linux },
     opencodeVersion: OPENCODE_VERSION,
   };
@@ -297,7 +343,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
             "Run `code-stick install` again on a host with npm available, " +
             "or run opencode once on an online machine to populate the cache.");
   }
-  renderLaunchers(drivePath, { modelTag: model!.tag });
+  renderLaunchers(drivePath, { modelTag: model!.tag, targets: selectedTargets });
 
   const skipCleanup = opts.cleanup === false;
   log.step(5, totalSteps, skipCleanup ? "Writing manifest (cleanup skipped)..." : "Writing manifest + cleanup...");
@@ -312,11 +358,20 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   log.success(`Installed code-stick on ${drivePath}`);
   warnIfLosesExecBit(fsInfo);
   log.info("Launch from the USB:");
-  log.dim(`  Windows:  start-windows.bat`);
-  log.dim(`  macOS:    start-mac.command`);
-  log.dim(`  Linux:    ./start-linux.sh`);
+  if (selectedTargets.some((t) => t === "windows-x64")) {
+    log.dim(`  Windows:  start-windows.bat`);
+  }
+  if (selectedTargets.some((t) => t === "darwin-arm64" || t === "darwin-x64")) {
+    log.dim(`  macOS:    start-mac.command`);
+  }
+  if (selectedTargets.some((t) => t === "linux-x64" || t === "linux-arm64")) {
+    log.dim(`  Linux:    ./start-linux.sh`);
+  }
   log.dim("Or run: code-stick start");
   log.dim("Add another model later: code-stick add-model");
+  if (!fullPortability) {
+    log.dim("Add more OS targets later: code-stick add-targets <list>");
+  }
   if (process.platform === "darwin") {
     log.blank();
     log.info("macOS first-launch tip:");

@@ -5,7 +5,7 @@ import path from "node:path";
 import { log } from "../utils/logger.js";
 import { pickDrive, assertDriveReady } from "../core/usb.js";
 import { usbPaths } from "../utils/paths.js";
-import { ALL_TARGETS } from "../catalog/targets.js";
+import { ALL_TARGETS, type Target } from "../catalog/targets.js";
 import { renderLaunchers } from "../core/launcher-gen.js";
 import { loadManifest, saveManifest, defaultModel } from "../state/manifest.js";
 import { writeOpencodeConfig } from "../core/opencode-config.js";
@@ -58,14 +58,21 @@ export async function upgradeEngineCommand(opts: UpgradeEngineOptions): Promise<
 
   const def = defaultModel(manifest);
   const modelCount = manifest.models.length;
+  // Refresh only what's already staged on this stick. A reduced-portability
+  // stick (e.g. installed with --targets host) must not silently grow extra
+  // targets at upgrade time — that's `code-stick add-targets`'s job.
+  const refreshTargets: Target[] = manifest.targets.length > 0
+    ? [...manifest.targets]
+    : [...ALL_TARGETS];
   log.info(`Stick currently has ${modelCount} model(s); default: ${def?.tag ?? "(none)"}`);
+  log.dim(`Refreshing engine for ${refreshTargets.length} target(s): ${refreshTargets.join(", ")}`);
   log.dim("Models in <USB>/data are NOT touched — only Ollama + opencode binaries are refreshed.");
 
   if (!opts.yes) {
     const ans = await promptWithEsc<{ proceed: boolean }>([
       {
         type: "confirm", name: "proceed",
-        message: `Re-download Ollama + opencode for ${ALL_TARGETS.length} target(s) and atomically swap?`,
+        message: `Re-download Ollama + opencode for ${refreshTargets.length} target(s) and atomically swap?`,
         default: true,
       },
     ]);
@@ -81,13 +88,13 @@ export async function upgradeEngineCommand(opts: UpgradeEngineOptions): Promise<
   });
 
   log.blank();
-  log.step(1, 3, `Downloading + staging Ollama + opencode for ${ALL_TARGETS.length} target(s)...`);
-  await stageAndSwapBinaries(drivePath, tempDir);
+  log.step(1, 3, `Downloading + staging Ollama + opencode for ${refreshTargets.length} target(s)...`);
+  await stageAndSwapBinaries(drivePath, tempDir, refreshTargets);
 
   log.step(2, 3, "Refreshing launchers + opencode config...");
   writeOpencodeConfig(drivePath, manifest);
   if (def) {
-    renderLaunchers(drivePath, { modelTag: def.tag });
+    renderLaunchers(drivePath, { modelTag: def.tag, targets: refreshTargets });
   } else {
     log.warn("No default model on this stick — skipping launcher render. Run `code-stick add-model` first.");
   }

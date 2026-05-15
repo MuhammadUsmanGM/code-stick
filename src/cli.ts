@@ -11,6 +11,7 @@ import { upgradeEngineCommand } from "./commands/upgrade-engine.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { addModelCommand } from "./commands/add-model.js";
 import { removeModelCommand } from "./commands/remove-model.js";
+import { addTargetsCommand } from "./commands/add-targets.js";
 import { uninstallCommand } from "./commands/uninstall.js";
 
 declare const PKG_VERSION: string | undefined;
@@ -32,6 +33,12 @@ async function main() {
     .option("-m, --model <id>", "Pick a model non-interactively (qwen25-coder-7b, deepseek-coder-6_7b, codegemma-7b, phi3-mini)")
     .option("-y, --yes", "Skip confirmations where possible")
     .option("--no-cleanup", "Keep installer archives + temp dirs after install (debugging)")
+    .option(
+      "--targets <list>",
+      "Which OS targets to stage. Comma-separated. Tokens: all (default, fully portable), " +
+      "host, windows, mac, linux, or any of windows-x64,darwin-arm64,darwin-x64,linux-x64,linux-arm64. " +
+      "Anything other than 'all' will print a non-portability warning.",
+    )
     .action(async (opts) => { await installCommand(opts); });
 
   program
@@ -80,6 +87,14 @@ async function main() {
     .option("-t, --target <path>", "Remove from this installation directory")
     .option("--force", "Allow removing the only or default model")
     .action(async (id, opts) => { await removeModelCommand(id, opts); });
+
+  program
+    .command("add-targets [list]")
+    .description("Add OS targets to a stick installed with --targets (restore portability)")
+    .option("-t, --target <path>", "Add to this installation directory")
+    .option("-y, --yes", "Skip confirmation")
+    .option("--no-cleanup", "Keep installer archives + temp dirs after run (debugging)")
+    .action(async (list, opts) => { await addTargetsCommand(list, opts); });
 
   program
     .command("uninstall")

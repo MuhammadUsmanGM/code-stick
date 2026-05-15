@@ -90,6 +90,7 @@ Pick one at install time. Add more later with `code-stick add-model`.
 | `code-stick upgrade-engine`              | Re-download Ollama + opencode without nuking the model store        |
 | `code-stick add-model [id]`              | Pull another model onto the stick                                   |
 | `code-stick remove-model [id]`           | Remove a model from the stick                                       |
+| `code-stick add-targets [list]`          | Add OS targets to a stick installed with `--targets` (restore portability) |
 | `code-stick uninstall`                   | Wipe code-stick from the stick (binaries, models, config, launchers)|
 
 ### Common flags
@@ -98,12 +99,39 @@ Pick one at install time. Add more later with `code-stick add-model`.
 code-stick install --target E:\           # skip USB picker
 code-stick install --model phi3-mini      # non-interactive model pick
 code-stick install --no-cleanup           # keep archives + temp for debugging
+code-stick install --targets host         # only stage binaries for this OS (saves ~3-4 GB, breaks portability)
+code-stick install --targets mac,linux    # multi-OS subset (still portable across listed ones)
+code-stick add-targets all                # restore full portability later
 code-stick add-model qwen25-coder-7b --set-default
 code-stick remove-model phi3-mini
 code-stick uninstall --target E:\ --yes
 ```
 
 Available model IDs: `qwen25-coder-7b`, `deepseek-coder-6_7b`, `codegemma-7b`, `phi3-mini`.
+
+### Trimming the stick with `--targets`
+
+**The default is fully portable.** `code-stick install` with no `--targets` flag stages binaries for all 5 OS/arch combinations so the same stick boots anywhere. That's the whole point of the product.
+
+`--targets` is a power-user escape hatch for one specific use case: *"I only want this on my own machine — I'll never plug this stick into another OS."* It saves ~3–4 GB of disk and ~5 minutes of download. In exchange, the stick will only boot on the OSes you list.
+
+Accepted tokens (comma-separated):
+
+| Token | Stages |
+| ----- | ------ |
+| `all` (default) | all 5 targets — fully portable |
+| `host` | just the OS+arch you're installing from |
+| `windows` / `mac` / `linux` | every arch in that OS family |
+| `windows-x64`, `darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64` | one specific target |
+
+Any value other than `all` prints a loud warning and asks for confirmation (unless `--yes` is set). The chosen subset is persisted in `code-stick.json`, so later you can fill in missing targets without wiping the model store:
+
+```bash
+code-stick add-targets darwin-arm64,darwin-x64   # add macOS later
+code-stick add-targets all                       # restore full portability
+```
+
+`code-stick upgrade-engine` will only refresh the targets actually present on the stick — it never silently grows the set.
 
 ## Requirements
 

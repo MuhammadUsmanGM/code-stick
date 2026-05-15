@@ -21,10 +21,26 @@ import { log } from "../utils/logger.js";
  * store — re-pulling a 5GB model just because Ollama bumped a patch version is
  * not the user's idea of fun.
  */
+/**
+ * Stage + atomically swap engine/opencode for `targets`.
+ *
+ * IMPORTANT: when `targets` is a strict subset of ALL_TARGETS we MERGE the
+ * staged subset into any existing live tree instead of nuking unrelated
+ * targets. This lets `add-targets` add windows/linux to a stick that was
+ * originally installed `--targets host` on macOS without redownloading the
+ * mac binaries the user already has on the stick.
+ *
+ * When `targets` equals ALL_TARGETS (default install) behavior is unchanged:
+ * the full live tree is replaced atomically.
+ */
 export async function stageAndSwapBinaries(
   drivePath: string,
   archiveTempDir: string,
+  targets: readonly Target[] = ALL_TARGETS,
 ): Promise<void> {
+  if (targets.length === 0) {
+    throw new Error("Internal: stageAndSwapBinaries called with empty targets list.");
+  }
   const engineStaging = path.join(drivePath, ".engine.new");
   const opencodeStaging = path.join(drivePath, ".opencode.new");
 
@@ -46,21 +62,50 @@ export async function stageAndSwapBinaries(
     try { fs.rmSync(opencodeStaging, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 
-  log.info(`Downloading Ollama for ${ALL_TARGETS.length} target(s)...`);
-  for (const t of ALL_TARGETS) {
+  log.info(`Downloading Ollama for ${targets.length} target(s)...`);
+  for (const t of targets) {
     await fetchAndExtractOllama(t, path.join(engineStaging, t), archiveTempDir);
   }
 
-  log.info(`Downloading opencode for ${ALL_TARGETS.length} target(s)...`);
-  for (const t of ALL_TARGETS) {
+  log.info(`Downloading opencode for ${targets.length} target(s)...`);
+  for (const t of targets) {
     await fetchAndExtractOpencode(t, path.join(opencodeStaging, t), archiveTempDir);
   }
 
-  // Every target extracted + verified — safe to swap.
-  swapDir(path.join(drivePath, "engine"), engineStaging, path.join(drivePath, ".engine.old"));
-  swapDir(path.join(drivePath, "opencode"), opencodeStaging, path.join(drivePath, ".opencode.old"));
+  // Partial install: graft staged targets into existing live tree so
+  // unrelated targets already on the stick survive the swap. Full install:
+  // straight atomic replace (existing behavior).
+  const isFullSet = targets.length === ALL_TARGETS.length;
+  if (isFullSet) {
+    swapDir(path.join(drivePath, "engine"), engineStaging, path.join(drivePath, ".engine.old"));
+    swapDir(path.join(drivePath, "opencode"), opencodeStaging, path.join(drivePath, ".opencode.old"));
+  } else {
+    mergeStagedTargets(path.join(drivePath, "engine"), engineStaging, targets);
+    mergeStagedTargets(path.join(drivePath, "opencode"), opencodeStaging, targets);
+  }
 
   stripQuarantineIfMac(path.join(drivePath, "engine"), path.join(drivePath, "opencode"));
+}
+
+/**
+ * Per-target swap: for each `t` in `targets`, atomically replace
+ * `<live>/<t>` with `<staging>/<t>`. Existing target dirs not in `targets`
+ * are left alone. After all per-target swaps succeed, the staging root is
+ * removed.
+ *
+ * Crash window between target swaps is identical to swapDir's: the user is
+ * left with a mix of new + old target binaries. That's still bootable on
+ * every individual launcher because each launcher only reads its own target.
+ */
+function mergeStagedTargets(liveRoot: string, stagingRoot: string, targets: readonly Target[]): void {
+  fs.mkdirSync(liveRoot, { recursive: true });
+  for (const t of targets) {
+    const liveDir = path.join(liveRoot, t);
+    const stagingDir = path.join(stagingRoot, t);
+    const backupDir = path.join(liveRoot, `.${t}.old`);
+    swapDir(liveDir, stagingDir, backupDir);
+  }
+  try { fs.rmSync(stagingRoot, { recursive: true, force: true }); } catch { /* ignore */ }
 }
 
 async function fetchAndExtractOllama(target: Target, destDir: string, tempDir: string): Promise<void> {

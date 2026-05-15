@@ -53,4 +53,21 @@ describe("renderLaunchers", () => {
       expect(body).toContain("phi3:mini");
     }
   });
+
+  it("emits only the windows launcher when only windows-x64 is staged", () => {
+    renderLaunchers(root, { modelTag: "phi3:mini", targets: ["windows-x64"] });
+    expect(fs.existsSync(path.join(root, "start-windows.bat"))).toBe(true);
+    expect(fs.existsSync(path.join(root, "start-mac.command"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "start-linux.sh"))).toBe(false);
+  });
+
+  it("emits mac + linux launchers for a darwin+linux subset", () => {
+    renderLaunchers(root, {
+      modelTag: "phi3:mini",
+      targets: ["darwin-arm64", "linux-x64"],
+    });
+    expect(fs.existsSync(path.join(root, "start-windows.bat"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "start-mac.command"))).toBe(true);
+    expect(fs.existsSync(path.join(root, "start-linux.sh"))).toBe(true);
+  });
 });
