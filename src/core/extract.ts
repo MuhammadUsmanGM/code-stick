@@ -50,14 +50,97 @@ export function chmodExecRecursive(root: string): void {
   }
 }
 
+/**
+ * Probe whether the host filesystem at `destDir` can store POSIX symlinks.
+ *
+ * Two real-world failure modes drive this:
+ *   1. Windows without Developer Mode + non-admin shell: fs.symlinkSync
+ *      throws EPERM because SeCreateSymbolicLinkPrivilege is not granted.
+ *   2. FAT32/exFAT (regardless of OS): the filesystem has no concept of a
+ *      symlink. fs.symlinkSync usually throws EPERM/ENOSYS/EINVAL.
+ *
+ * Either way, tar.x() will abort mid-stream the first time it tries to
+ * lay down a symlink — corrupting the staging dir for a perfectly valid
+ * macOS Ollama tarball (which carries `libggml-base.dylib -> libggml-base.0.0.0.dylib`).
+ *
+ * We probe once per destination at extract time and switch to a
+ * copy-the-target-bytes fallback when symlinks aren't available. Probing
+ * costs one small write+symlink+unlink — negligible next to an N-MB tar.
+ */
+export function hostCanSymlink(destDir: string): boolean {
+  fs.mkdirSync(destDir, { recursive: true });
+  const targetPath = path.join(destDir, ".cs-symlink-probe-target");
+  const linkPath = path.join(destDir, ".cs-symlink-probe-link");
+  // Best-effort cleanup of anything left by a previous crashed probe.
+  try { fs.unlinkSync(linkPath); } catch { /* ignore */ }
+  try { fs.unlinkSync(targetPath); } catch { /* ignore */ }
+  try {
+    fs.writeFileSync(targetPath, "probe");
+    fs.symlinkSync(targetPath, linkPath);
+    // Confirm the link actually resolves — some Windows builds with the
+    // privilege missing let symlinkSync succeed silently then fail on read.
+    const round = fs.readFileSync(linkPath, "utf-8");
+    return round === "probe";
+  } catch {
+    return false;
+  } finally {
+    try { fs.unlinkSync(linkPath); } catch { /* ignore */ }
+    try { fs.unlinkSync(targetPath); } catch { /* ignore */ }
+  }
+}
+
+interface DeferredLink {
+  /** Path inside destDir where the link should be materialized. */
+  destPath: string;
+  /** Resolved on-disk path the link points at, normalized to destDir. */
+  resolvedTarget: string;
+  /** Original linkpath verbatim — used for warnings. */
+  linkpath: string;
+  /** "symlink" or "hardlink" — informs whether we copy or hard-link first. */
+  kind: "symlink" | "hardlink";
+}
+
+/**
+ * Resolve a tar entry's linkpath into an absolute, sandboxed on-disk path.
+ *
+ * tar entry semantics:
+ *   - SymbolicLink: linkpath is relative to the symlink's own DIRECTORY.
+ *   - Link (hardlink): linkpath is relative to the EXTRACTION ROOT.
+ *
+ * Returns null when the link escapes destDir (path-traversal guard).
+ */
+function resolveLinkTarget(
+  destDir: string,
+  entryRelPath: string,
+  linkpath: string,
+  kind: "symlink" | "hardlink",
+): string | null {
+  if (!linkpath) return null;
+  const base = kind === "symlink"
+    ? path.dirname(path.join(destDir, entryRelPath))
+    : destDir;
+  const resolved = path.resolve(base, linkpath);
+  if (resolved !== destDir && !resolved.startsWith(destDir + path.sep)) return null;
+  return resolved;
+}
+
 export async function extractTarFile(tarPath: string, destDir: string): Promise<void> {
   fs.mkdirSync(destDir, { recursive: true });
   const resolvedDest = path.resolve(destDir);
+
+  // Decide once whether to defer symlink/hardlink creation. The probe runs in
+  // the *real* destDir so we catch the filesystem the binaries will actually
+  // live on (USB stick formatted FAT32/exFAT will refuse symlinks even on
+  // Linux/macOS hosts).
+  const canSymlink = hostCanSymlink(resolvedDest);
+  const deferredLinks: DeferredLink[] = [];
+
   // Path-traversal hardening: a malicious or corrupted tar could carry entries
   // like "../../etc/passwd". node-tar already strips leading "/" and resolves
   // "..", but we belt-and-brace it:
   //   - filter:  drop any entry whose path resolves outside destDir or contains
-  //              ".." segments
+  //              ".." segments, and divert SymbolicLink/Link entries into
+  //              deferredLinks when the host can't create them.
   //   - strict:  treat unrecognized headers as errors instead of silently
   //              skipping them
   //   - onwarn:  surface tar's own complaints so we don't paper over a broken
@@ -68,7 +151,11 @@ export async function extractTarFile(tarPath: string, destDir: string): Promise<
     cwd: toLongPath(resolvedDest),
     strip: 0,
     strict: true,
-    filter: (entryPath) => {
+    // chmod / chown are no-ops on Win32 and irrelevant for our use case;
+    // disabling them avoids tar walking each file's metadata after write.
+    noChmod: process.platform === "win32",
+    preserveOwner: false,
+    filter: (entryPath, stat) => {
       if (entryPath.split(/[\\/]/).some((seg) => seg === "..")) {
         aborted ??= `archive contains path with '..' segment: ${entryPath}`;
         return false;
@@ -77,6 +164,27 @@ export async function extractTarFile(tarPath: string, destDir: string): Promise<
       if (target !== resolvedDest && !target.startsWith(resolvedDest + path.sep)) {
         aborted ??= `archive entry escapes destination: ${entryPath}`;
         return false;
+      }
+      // Divert link entries when the host can't materialize them as real
+      // links. node-tar drops onentry for any entry the filter rejects, so
+      // we capture linkpath HERE (stat exposes it for link types) and queue
+      // a copy-from-target post-pass. Returning false then prevents tar
+      // from calling symlinkSync at all — the failure mode we're avoiding.
+      if (!canSymlink) {
+        const typ = (stat as { type?: string }).type;
+        if (typ === "SymbolicLink" || typ === "Link") {
+          const kind: "symlink" | "hardlink" = typ === "SymbolicLink" ? "symlink" : "hardlink";
+          const linkpath = (stat as { linkpath?: string }).linkpath ?? "";
+          const destPath = path.join(resolvedDest, entryPath);
+          const targetResolved = resolveLinkTarget(resolvedDest, entryPath, linkpath, kind);
+          deferredLinks.push({
+            destPath,
+            resolvedTarget: targetResolved ?? "",
+            linkpath,
+            kind,
+          });
+          return false;
+        }
       }
       return true;
     },
@@ -90,7 +198,72 @@ export async function extractTarFile(tarPath: string, destDir: string): Promise<
       "The archive may be corrupt or tampered with — re-run the install to re-download from the catalog mirrors."
     );
   }
+
+  if (deferredLinks.length > 0) {
+    materializeDeferredLinks(resolvedDest, deferredLinks);
+  }
+
   log.dim(`Extracted ${path.basename(tarPath)}`);
+}
+
+/**
+ * Resolve each deferred symlink/hardlink to its target's bytes and lay it
+ * down as a regular file.
+ *
+ * Why this is correct for code-stick: the binaries we ship are read on
+ * machines that DO support symlinks (macOS, Linux). They never need to be
+ * "linked" — every symlink in upstream Ollama/opencode tarballs is purely
+ * a space-saving alias (e.g. `libfoo.dylib -> libfoo.1.dylib`). Copying
+ * costs disk but launches are unaffected.
+ *
+ * Multi-pass: links can point at other links. We resolve up to MAX_PASSES
+ * times before giving up — a runaway loop in a malicious archive shouldn't
+ * wedge the installer.
+ */
+function materializeDeferredLinks(destDir: string, links: DeferredLink[]): void {
+  const MAX_PASSES = 8;
+  let remaining = links;
+  for (let pass = 0; pass < MAX_PASSES && remaining.length; pass++) {
+    const next: DeferredLink[] = [];
+    for (const link of remaining) {
+      if (!link.resolvedTarget) {
+        log.warn(
+          `Skipping link ${path.relative(destDir, link.destPath)} -> ${link.linkpath} ` +
+          `(target outside extracted tree or empty)`,
+        );
+        continue;
+      }
+      if (!fs.existsSync(link.resolvedTarget)) {
+        // Target not laid down yet — could be a later entry in the same
+        // tar that we already extracted, or another deferred link still
+        // pending. Re-queue once and hope a later pass resolves it.
+        next.push(link);
+        continue;
+      }
+      try {
+        // Ensure parent dir exists. The original tar entry's parent should
+        // already be there from a directory entry, but Ollama bundles
+        // sometimes ship a symlink at top level before any sibling dir.
+        fs.mkdirSync(path.dirname(link.destPath), { recursive: true });
+        // Always copy bytes — even for hardlinks. fs.linkSync would work on
+        // Windows for hardlinks but fails across drives; copy is uniformly
+        // safe and the size cost is negligible at our scale.
+        fs.copyFileSync(toLongPath(link.resolvedTarget), toLongPath(link.destPath));
+      } catch (err) {
+        log.warn(
+          `Could not materialize ${link.kind} ${path.relative(destDir, link.destPath)}` +
+          ` -> ${link.linkpath}: ${(err as Error).message}`,
+        );
+      }
+    }
+    remaining = next;
+  }
+  for (const stuck of remaining) {
+    log.warn(
+      `Could not resolve ${stuck.kind} ${path.relative(destDir, stuck.destPath)} -> ` +
+      `${stuck.linkpath} (target never appeared in the archive — skipping)`,
+    );
+  }
 }
 
 /**
