@@ -13,6 +13,7 @@ import { setupShutdownHooks, registerCleanup } from "../core/process-manager.js"
 import { stageAndSwapBinaries } from "../core/engine-staging.js";
 import { postInstallCleanup } from "../core/cleanup.js";
 import { promptWithEsc } from "../utils/prompt.js";
+import { reportSymlinkCapability } from "../core/preflight.js";
 import { openInstallLog, closeInstallLog } from "../utils/install-log.js";
 
 interface UpgradeEngineOptions {
@@ -86,6 +87,8 @@ export async function upgradeEngineCommand(opts: UpgradeEngineOptions): Promise<
   registerCleanup(() => {
     try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
   });
+
+  reportSymlinkCapability(drivePath);
 
   log.blank();
   log.step(1, 3, `Downloading + staging Ollama + opencode for ${refreshTargets.length} target(s)...`);

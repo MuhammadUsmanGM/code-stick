@@ -18,7 +18,12 @@ import {
 import { MODELS, findModel, type CodingModel } from "../catalog/models.js";
 import { renderLaunchers } from "../core/launcher-gen.js";
 import { saveManifest, loadManifest, type Manifest } from "../state/manifest.js";
-import { preflightFilesystem, warnIfLosesExecBit, winPathPreflight } from "../core/preflight.js";
+import {
+  preflightFilesystem,
+  reportSymlinkCapability,
+  warnIfLosesExecBit,
+  winPathPreflight,
+} from "../core/preflight.js";
 import { postInstallCleanup } from "../core/cleanup.js";
 import { setupShutdownHooks, stopAll, registerCleanup } from "../core/process-manager.js";
 import { pullModelTag } from "../core/model-pull.js";
@@ -250,6 +255,10 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   // pre-staged node_modules tree would overflow MAX_PATH (260). Surfaces a
   // remediation rather than letting the install fail mid-prestage.
   winPathPreflight(drivePath);
+  // Tell the user up front whether tar extraction will use native symlinks
+  // or fall back to copying bytes — important context on Windows non-admin
+  // and FAT32/exFAT sticks where the extractor switches modes automatically.
+  reportSymlinkCapability(drivePath);
 
   const p = usbPaths(drivePath);
   // Fast mode's whole point is "don't tax the slow USB". Putting the

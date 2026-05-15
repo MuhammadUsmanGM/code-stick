@@ -1,7 +1,9 @@
 // Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a
+import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { detectFilesystem } from "./usb.js";
+import { hostCanSymlink } from "./extract.js";
 import { log } from "../utils/logger.js";
 import type { CodingModel } from "../catalog/models.js";
 
@@ -125,5 +127,38 @@ export function warnIfLosesExecBit(info: FsInfo): void {
   log.warn(
     `Filesystem is ${info.raw} — it cannot store the executable bit. ` +
     `On Linux/macOS, launch with: bash start-linux.sh  (or)  bash start-mac.command`
+  );
+}
+
+/**
+ * Probe the destination filesystem for POSIX symlink support and surface the
+ * result before the multi-GB download begins.
+ *
+ * The probe itself is cheap (one tiny file + symlink + unlink in a scratch
+ * subdir). Running it as part of preflight means the user sees a one-line
+ * notice up front explaining why deeply-nested macOS/Linux bundles will
+ * still extract successfully, and we catch the failure surface (Windows
+ * non-admin, FAT32/exFAT) before tar.x is ever invoked.
+ *
+ * The extractor calls `hostCanSymlink()` again itself — it has to, because
+ * staging dirs aren't created yet at preflight time. The duplication is
+ * deliberate: this call is just for the observability/UX side.
+ */
+export function reportSymlinkCapability(drivePath: string): void {
+  const probeRoot = path.join(drivePath, ".code-stick-preflight");
+  let canLink: boolean;
+  try {
+    canLink = hostCanSymlink(probeRoot);
+  } finally {
+    try { fs.rmSync(probeRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+  if (canLink) {
+    log.dim("Symlink capability OK — tar extraction will use native symlinks.");
+    return;
+  }
+  log.dim(
+    "Symlink support not available on this destination — extraction will materialize " +
+    "macOS/Linux tarball symlinks as regular file copies. Harmless on the target OS; " +
+    "adds a few MB per platform.",
   );
 }

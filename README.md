@@ -28,7 +28,7 @@ Under the hood it's [opencode](https://opencode.ai) (terminal coding agent) talk
 
 ## Status
 
-**v0.1.0 — early release.** What works today:
+**v0.1.1 — early release.** What works today:
 
 - Full install flow on Windows, macOS, Linux (x64 + ARM64) — tested manually per target.
 - Docker-based Linux smoke test in CI (`npm run smoke:docker`).
