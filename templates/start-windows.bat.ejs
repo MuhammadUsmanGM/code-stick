@@ -59,7 +59,7 @@ REM survives that.
 set "OLLAMA_PID="
 set "OLLAMA_PID_FILE=%TEMP%\code-stick-ollama.pid"
 del /q "%OLLAMA_PID_FILE%" >nul 2>&1
-powershell -NoProfile -Command "$p = Start-Process -FilePath '%OLLAMA_BIN%' -ArgumentList 'serve' -WindowStyle Hidden -PassThru -RedirectStandardOutput '%TEMP%\code-stick-ollama.log' -RedirectStandardError '%TEMP%\code-stick-ollama.err'; [IO.File]::WriteAllText('%OLLAMA_PID_FILE%', $p.Id)" >nul 2>&1
+powershell -NoProfile -Command "$env:OLLAMA_MODELS = '%OLLAMA_MODELS%'; $env:OLLAMA_HOST = '%OLLAMA_HOST%'; $p = Start-Process -FilePath '%OLLAMA_BIN%' -ArgumentList 'serve' -WindowStyle Hidden -PassThru -RedirectStandardOutput '%TEMP%\code-stick-ollama.log' -RedirectStandardError '%TEMP%\code-stick-ollama.err'; [IO.File]::WriteAllText('%OLLAMA_PID_FILE%', $p.Id)" >nul 2>&1
 if exist "%OLLAMA_PID_FILE%" set /p OLLAMA_PID=<"%OLLAMA_PID_FILE%"
 del /q "%OLLAMA_PID_FILE%" >nul 2>&1
 if not defined OLLAMA_PID (

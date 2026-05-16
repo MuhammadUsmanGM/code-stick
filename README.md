@@ -94,6 +94,11 @@ drops off a cliff once Ollama spills to disk.
 > can take 30–90 seconds for the first response after launch — Ollama is
 > mmap'ing ~20 GB of weights off the USB. Subsequent prompts are fast because
 > the OS page-caches the blob.
+>
+> **USB 2.0 sticks are unusable for medium/large tiers.** A USB 2.0 stick
+> tops out at ~30 MB/s read — a 20 GB model would take ~11 minutes just to
+> warm up. Use **USB 3.0 or better** (3.2 Gen 1 is the sweet spot) for any
+> model >7B. The installer doesn't refuse USB 2 sticks; it just won't be fun.
 
 ### Bring your own Ollama tag
 

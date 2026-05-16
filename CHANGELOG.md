@@ -39,6 +39,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `resolveModelArg` + `resolveCustomTag`; size estimation for unknown tags
   derived from the `:Nb` parameter suffix.
 - `--yes` flag wired through to `add-model` in `cli.ts`.
+- `test/models.test.ts` (24 new cases) covering tag validation, id slugging,
+  custom-tag size estimation, and catalog invariants (unique ids/tags,
+  tier→sizeGB consistency).
+- `package.json` keywords: dropped model-specific names (qwen, deepseek,
+  codegemma, phi3) that bitrot as the catalog evolves; added durable
+  concept keywords (airgapped, local-llm, byo-model, self-hosted, privacy).
+
+### Fixed
+- Install + add-model pickers no longer scroll the visible window when the
+  list is longer than inquirer's 7-row default — render the full list at
+  once (`pageSize: choices.length`, `loop: false`) so up/down moves the
+  cursor in a static list.
 
 ## 0.1.1
 

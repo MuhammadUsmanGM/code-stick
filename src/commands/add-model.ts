@@ -1,7 +1,12 @@
 // Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a
 import { log } from "../utils/logger.js";
 import { promptWithEsc } from "../utils/prompt.js";
-import { pickDrive, assertDriveReady, checkDiskSpace } from "../core/usb.js";
+import {
+  pickDrive,
+  assertDriveReady,
+  checkDiskSpace,
+  getFreeSpaceGB,
+} from "../core/usb.js";
 import {
   MODELS,
   findModel,
@@ -84,7 +89,7 @@ export async function addModelCommand(modelId: string | undefined, opts: AddMode
     process.exit(1);
   }
 
-  const resolved = await resolveModelArg(modelId, manifest.models.map((m) => m.id), opts);
+  const resolved = await resolveModelArg(modelId, manifest.models.map((m) => m.id), opts, drivePath);
   if (!resolved) { log.info("Cancelled."); return; }
 
   if (manifest.models.some((m) => m.id === resolved.id || m.tag === resolved.tag)) {
@@ -154,6 +159,7 @@ async function resolveModelArg(
   arg: string | undefined,
   alreadyInstalled: string[],
   opts: AddModelOptions,
+  drivePath: string,
 ): Promise<ResolvedModel | null> {
   if (arg) {
     const curated = findModel(arg);
@@ -181,20 +187,40 @@ async function resolveModelArg(
     log.dim("Example: code-stick add-model qwen2.5-coder:14b");
     return null;
   }
-  const choices = remaining.map((m) => {
+
+  // Stat USB free space (already net of installed model blobs — `statfs`
+  // reports actual filesystem availability) so we can disable entries that
+  // wouldn't fit. Budget includes 1 GB headroom for the temp ollama-server
+  // workdir and partial blob files.
+  const usbFreeGB = getFreeSpaceGB(drivePath);
+  const usbBudgetGB = usbFreeGB !== null ? Math.max(0, usbFreeGB - 1) : null;
+  if (usbBudgetGB !== null) {
+    log.dim(`USB free space: ~${usbFreeGB!.toFixed(1)} GB (usable for the model: ~${usbBudgetGB.toFixed(1)} GB).`);
+  }
+
+  type Choice = { name: string; value: string; disabled?: string };
+  const choices: Choice[] = remaining.map((m) => {
     const tierTag = m.tier && m.tier !== "small" ? `  [${m.tier}]` : "";
-    return {
-      name: `${m.name} — ${m.size}  ${m.bestFor}${tierTag}`,
-      value: m.id,
-    };
+    const base = `${m.name} — ${m.size}  ${m.bestFor}${tierTag}`;
+    if (usbBudgetGB !== null && m.sizeGB > usbBudgetGB) {
+      const shortBy = (m.sizeGB - usbBudgetGB).toFixed(1);
+      return { name: base, value: m.id, disabled: `needs ~${shortBy} GB more` };
+    }
+    return { name: base, value: m.id };
   });
+  // Default to the first entry that actually fits — picking a disabled one
+  // makes the user fight the prompt.
+  const fittingDefault = remaining.find(
+    (m) => usbBudgetGB === null || m.sizeGB <= usbBudgetGB,
+  ) ?? remaining[0];
+
   const ans = await promptWithEsc<{ id: string }>([
     {
       type: "list",
       name: "id",
       message: "Pick a coding model to add:",
       choices,
-      default: remaining[0].id,
+      default: fittingDefault.id,
       // Match the install picker: render the whole list, no wrap-around.
       pageSize: Math.max(choices.length, 7),
       loop: false,

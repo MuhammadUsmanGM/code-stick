@@ -78,6 +78,7 @@ export function prestageOpencodeProviders(opencodeCacheDir: string): PrestageRes
         "--omit=dev",
         "--no-audit", "--no-fund",
         "--no-package-lock",
+        "--bin-links=false",
         // CRITICAL for portability: --ignore-scripts disables postinstall hooks
         // that would otherwise run prebuild-install and download host-arch
         // native binaries. The USB has to boot on Windows / macOS / Linux

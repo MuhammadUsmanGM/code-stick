@@ -35,11 +35,12 @@
     "portable",
     "usb",
     "offline",
+    "airgapped",
     "ollama",
-    "qwen",
-    "deepseek",
-    "codegemma",
-    "phi3"
+    "local-llm",
+    "byo-model",
+    "self-hosted",
+    "privacy"
   ],
   "author": {
     "name": "Muhammad Usman",
