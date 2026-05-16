@@ -8,6 +8,38 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Unreleased
 
+## 0.1.2
+
+### Added
+- **Medium + large model tiers in the curated catalog.** 64 GB sticks can now
+  pick Qwen2.5-Coder 14B or DeepSeek-Coder-V2 16B; 128 GB sticks can pick
+  Qwen2.5-Coder 32B or DeepSeek-Coder 33B. Curated entries gained `tier`
+  (`small`/`medium`/`large`) and `recommendedRAMGB` so the picker and README
+  can warn about target-laptop RAM, not just USB size.
+- **`code-stick add-model <ollama-tag>` — bring your own model.** The
+  command now accepts an arbitrary Ollama tag (e.g. `qwen2.5-coder:14b`,
+  `deepseek-coder-v2:16b`, `llama3.1:70b`) in addition to curated ids.
+  Loud confirm gate by default, suppressible with `--yes`. Tag-derived
+  manifest ids are prefixed `custom-` so `status` / `remove-model` can
+  tell curated from BYO at a glance. Tag validation rejects whitespace,
+  control chars, and shell metacharacters before any spawn.
+- **Free-space-aware install picker.** The model picker now stats the
+  selected USB and disables entries that wouldn't fit (with a "needs X GB
+  more" annotation) instead of letting the user pick a model they can't
+  install. The dedicated space-check step still gets the final word.
+- README: rewritten "Coding models" section with size tiers, target-laptop
+  RAM column, first-prompt-latency caveat for 32B models, and an explicit
+  "bring your own Ollama tag" subsection.
+
+### Internal
+- `src/catalog/models.ts`: new helpers `isPlausibleOllamaTag` and
+  `tagToCustomId`, plus the optional `tier` / `recommendedRAMGB` fields on
+  `CodingModel`.
+- `src/commands/add-model.ts`: factored argument-resolution into
+  `resolveModelArg` + `resolveCustomTag`; size estimation for unknown tags
+  derived from the `:Nb` parameter suffix.
+- `--yes` flag wired through to `add-model` in `cli.ts`.
+
 ## 0.1.1
 
 ### Fixed

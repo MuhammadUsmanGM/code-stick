@@ -75,10 +75,15 @@ async function main() {
     .action(async (opts) => { await upgradeEngineCommand(opts); });
 
   program
-    .command("add-model [id]")
-    .description("Pull an additional coding model onto an existing stick")
+    .command("add-model [id-or-tag]")
+    .description(
+      "Pull a coding model onto an existing stick. Accepts a curated id " +
+      "(qwen25-coder-7b, qwen25-coder-14b, qwen25-coder-32b, ...) OR any " +
+      "Ollama tag (e.g. `qwen2.5-coder:14b`, `deepseek-coder-v2:16b`)."
+    )
     .option("-t, --target <path>", "Add to this installation directory")
     .option("--set-default", "Make the new model the default for opencode + launchers")
+    .option("-y, --yes", "Skip the custom-tag confirmation prompt")
     .action(async (id, opts) => { await addModelCommand(id, opts); });
 
   program

@@ -17,6 +17,16 @@ export interface CodingModel {
   sizeGB: number;
   /** Short blurb shown next to the picker entry. */
   bestFor: string;
+  /**
+   * Stick-size tier the picker uses to nudge users away from oversized models.
+   * "small"  — fits a 32 GB USB comfortably (the original 4 models).
+   * "medium" — wants a 64 GB+ USB AND ~16 GB RAM on the target laptop.
+   * "large"  — wants a 128 GB+ USB AND ~32 GB RAM on the target laptop.
+   * Picker filters by free-space-on-USB; tier is only a labeling hint.
+   */
+  tier?: "small" | "medium" | "large";
+  /** Rule-of-thumb RAM (GB) the target laptop needs to run this model. */
+  recommendedRAMGB?: number;
 }
 
 const _MUGM = Object.freeze({ b: 0x4D756861, g: "MuhammadUsmanGM" });
@@ -29,6 +39,8 @@ export const MODELS: CodingModel[] = [
     size: "4.7 GB",
     sizeGB: 4.7,
     bestFor: "Best all-rounder for coding in this size range",
+    tier: "small",
+    recommendedRAMGB: 8,
   },
   {
     id: "deepseek-coder-6_7b",
@@ -37,6 +49,8 @@ export const MODELS: CodingModel[] = [
     size: "3.8 GB",
     sizeGB: 3.8,
     bestFor: "Debugging, 80+ languages",
+    tier: "small",
+    recommendedRAMGB: 8,
   },
   {
     id: "codegemma-7b",
@@ -45,6 +59,8 @@ export const MODELS: CodingModel[] = [
     size: "5.0 GB",
     sizeGB: 5.0,
     bestFor: "Fill-in-middle, code completion",
+    tier: "small",
+    recommendedRAMGB: 8,
   },
   {
     id: "phi3-mini",
@@ -53,11 +69,106 @@ export const MODELS: CodingModel[] = [
     size: "2.2 GB",
     sizeGB: 2.2,
     bestFor: "Fast, low-spec hardware",
+    tier: "small",
+    recommendedRAMGB: 4,
+  },
+  // Medium tier — 64 GB+ stick, 16 GB+ RAM on the target laptop.
+  {
+    id: "qwen25-coder-14b",
+    name: "Qwen2.5-Coder 14B",
+    tag: "qwen2.5-coder:14b",
+    size: "9.0 GB",
+    sizeGB: 9.0,
+    bestFor: "Stronger reasoning + multi-file edits (needs 16 GB RAM)",
+    tier: "medium",
+    recommendedRAMGB: 16,
+  },
+  {
+    id: "deepseek-coder-v2-16b",
+    name: "DeepSeek-Coder-V2 16B",
+    tag: "deepseek-coder-v2:16b",
+    size: "8.9 GB",
+    sizeGB: 8.9,
+    bestFor: "MoE coder, strong on refactors (needs 16 GB RAM)",
+    tier: "medium",
+    recommendedRAMGB: 16,
+  },
+  // Large tier — 128 GB+ stick, 32 GB+ RAM on the target laptop.
+  // USB 3.2 strongly recommended — cold load on USB 2 is brutal.
+  {
+    id: "qwen25-coder-32b",
+    name: "Qwen2.5-Coder 32B",
+    tag: "qwen2.5-coder:32b",
+    size: "20 GB",
+    sizeGB: 20,
+    bestFor: "Top-tier OSS coder, near-frontier quality (needs 32 GB RAM)",
+    tier: "large",
+    recommendedRAMGB: 32,
+  },
+  {
+    id: "deepseek-coder-33b",
+    name: "DeepSeek-Coder 33B",
+    tag: "deepseek-coder:33b",
+    size: "19 GB",
+    sizeGB: 19,
+    bestFor: "Deep reasoning on large codebases (needs 32 GB RAM)",
+    tier: "large",
+    recommendedRAMGB: 32,
   },
 ];
 
 export function findModel(id: string): CodingModel | undefined {
   return MODELS.find((m) => m.id === id);
+}
+
+/**
+ * True iff the string is a syntactically plausible Ollama tag we'd be willing
+ * to pass to `ollama pull`. Intentionally permissive — Ollama's registry has
+ * forks ("user/model"), digests ("@sha256:..."), and unusual tag names. We
+ * only reject what would obviously break a shell/argv pass-through.
+ *
+ * Examples accepted:
+ *   qwen2.5-coder:14b
+ *   deepseek-coder-v2:16b
+ *   library/qwen2.5-coder:32b-instruct-q4_K_M
+ *   hf.co/user/model:tag
+ *
+ * Examples rejected:
+ *   "" (empty)
+ *   tags containing whitespace, control chars, or shell metacharacters
+ */
+export function isPlausibleOllamaTag(s: string): boolean {
+  if (typeof s !== "string") return false;
+  const trimmed = s.trim();
+  if (trimmed.length === 0 || trimmed.length > 200) return false;
+  // Disallow whitespace, control chars, and shell-special characters that
+  // would make this dangerous to pass to ollama via spawn argv.
+  // (spawn doesn't shell-evaluate, but a tag containing NUL or newlines is
+  // never a real Ollama tag — bail early with a useful error.)
+  if (/[\s\x00-\x1f`$;&|<>(){}\[\]\\'"]/.test(trimmed)) return false;
+  // Must contain at least one alphanumeric — pure punctuation isn't a tag.
+  if (!/[a-z0-9]/i.test(trimmed)) return false;
+  return true;
+}
+
+/**
+ * Derive a stable manifest ID from a raw Ollama tag. Used when a user runs
+ * `code-stick add-model <tag>` with a tag not in MODELS[]. The ID is what
+ * appears in `code-stick.json` and what `remove-model` / `start` look up.
+ *
+ * Strategy: lowercase, replace any character that's not [a-z0-9-] with "-",
+ * collapse runs, trim leading/trailing dashes, prefix with "custom-" so
+ * curated and BYO models are visually distinguishable in `status`.
+ *
+ * Example:  "qwen2.5-coder:14b"        → "custom-qwen2-5-coder-14b"
+ *           "library/codellama:34b"    → "custom-library-codellama-34b"
+ */
+export function tagToCustomId(tag: string): string {
+  const slug = tag
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug ? `custom-${slug}` : "custom-model";
 }
 
 // Authorship marker — kept on a single line so it cannot accidentally break

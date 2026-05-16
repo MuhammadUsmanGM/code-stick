@@ -142,27 +142,75 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     }
 
     if (step === "model") {
+      // Stat the USB once so we can grey out models that won't fit. Budget:
+      // model blob + ~1.5 GB binaries + 1 GB scratch headroom (matches the
+      // `space` step further down). We don't bail here — the dedicated space
+      // step still gets the final word once a model is selected.
+      const usbFreeGB = getFreeSpaceGB(drivePath);
+      const usbBudgetGB = usbFreeGB !== null
+        ? Math.max(0, usbFreeGB - BINARY_FOOTPRINT_GB - 1)
+        : null;
+
       if (opts.model) {
         const m = findModel(opts.model);
         if (!m) {
           const ids = MODELS.map((x) => x.id).join(", ");
           throw new Error(`Unknown --model "${opts.model}". Available: ${ids}`);
         }
+        // Non-interactive path: still warn if --model picks something too
+        // big for the USB. Don't refuse — user passed an explicit flag, the
+        // dedicated `space` step will gate the actual install.
+        if (usbBudgetGB !== null && m.sizeGB > usbBudgetGB) {
+          log.warn(
+            `${m.name} (~${m.sizeGB} GB) is larger than the ` +
+            `~${usbBudgetGB.toFixed(1)} GB free space on ${drivePath} ` +
+            `(after reserving ~${BINARY_FOOTPRINT_GB + 1} GB for binaries + headroom).`,
+          );
+          log.dim("Free space, pick a smaller model, or pass a bigger USB.");
+        }
         log.info(`Selected model: ${m.name}`);
         model = m;
         step = "speed";
         continue;
       }
-      const choices = MODELS.map((m) => ({
-        name: `${m.name} — ${m.size}  ${m.bestFor}`,
-        value: m.id,
-      }));
+
+      // Annotate each entry. Models that don't fit get a [needs X GB more]
+      // suffix so the user understands why their dream model is missing.
+      // We still SHOW them in the list (with disabled: true) instead of
+      // hiding outright — hiding "Qwen 32B" on a small stick leaves the user
+      // wondering whether we even support it.
+      type Choice = { name: string; value: string; disabled?: string };
+      const choices: Choice[] = MODELS.map((m) => {
+        const tierTag = m.tier && m.tier !== "small" ? `  [${m.tier}]` : "";
+        const base = `${m.name} — ${m.size}  ${m.bestFor}${tierTag}`;
+        if (usbBudgetGB !== null && m.sizeGB > usbBudgetGB) {
+          const shortBy = (m.sizeGB - usbBudgetGB).toFixed(1);
+          return { name: base, value: m.id, disabled: `needs ~${shortBy} GB more` };
+        }
+        return { name: base, value: m.id };
+      });
+      const fittingDefault = MODELS.find(
+        (m) => usbBudgetGB === null || m.sizeGB <= usbBudgetGB,
+      ) ?? MODELS[0];
+
+      if (usbBudgetGB !== null) {
+        log.dim(
+          `USB free space: ~${usbFreeGB!.toFixed(1)} GB ` +
+          `(usable for the model: ~${usbBudgetGB.toFixed(1)} GB after binaries + headroom)`,
+        );
+      }
+
       const ans = await promptWithEsc<{ id: string }>([
         {
           type: "list", name: "id",
           message: "Pick a coding model (you can add more later with `code-stick add-model`):",
           choices,
-          default: MODELS[0].id,
+          default: fittingDefault.id,
+          // Render the full list at once so up/down moves the cursor in a
+          // static list instead of scrolling the visible window. Inquirer
+          // defaults to pageSize=7 which makes 8+ entries feel jumpy.
+          pageSize: Math.max(choices.length, 7),
+          loop: false,
         },
       ]);
       if (!ans) { step = "drive"; continue; }

@@ -69,14 +69,52 @@ Plug the stick into any supported machine, double-click the launcher for that OS
 
 ## Coding models
 
-Pick one at install time. Add more later with `code-stick add-model`.
+Pick one at install time, or add more later with `code-stick add-model`.
+**Bigger stick → bigger model.** The picker filters out entries that won't
+fit on the USB you selected.
 
-| Model                | Ollama tag             | Size    | Best for                                |
-| -------------------- | ---------------------- | ------- | --------------------------------------- |
-| Qwen2.5-Coder 7B ⭐  | `qwen2.5-coder:7b`     | ~4.7 GB | All-rounder for coding (recommended)    |
-| DeepSeek-Coder 6.7B  | `deepseek-coder:6.7b`  | ~3.8 GB | Debugging, 80+ languages                |
-| CodeGemma 7B         | `codegemma:7b`         | ~5.0 GB | Fill-in-middle, code completion         |
-| Phi-3 Mini 3.8B      | `phi3:mini`            | ~2.2 GB | Lightweight, low-spec hardware          |
+### Curated
+
+| Tier  | Model                  | Ollama tag                 | Size    | Stick / RAM  | Best for                          |
+| ----- | ---------------------- | -------------------------- | ------- | ------------ | --------------------------------- |
+| small | Phi-3 Mini 3.8B        | `phi3:mini`                | ~2.2 GB | 32 GB / 4 GB | Lightweight, low-spec hardware    |
+| small | DeepSeek-Coder 6.7B    | `deepseek-coder:6.7b`      | ~3.8 GB | 32 GB / 8 GB | Debugging, 80+ languages          |
+| small | Qwen2.5-Coder 7B ⭐    | `qwen2.5-coder:7b`         | ~4.7 GB | 32 GB / 8 GB | All-rounder for coding            |
+| small | CodeGemma 7B           | `codegemma:7b`             | ~5.0 GB | 32 GB / 8 GB | Fill-in-middle, code completion   |
+| medium| DeepSeek-Coder-V2 16B  | `deepseek-coder-v2:16b`    | ~8.9 GB | 64 GB / 16 GB| MoE coder, strong on refactors    |
+| medium| Qwen2.5-Coder 14B      | `qwen2.5-coder:14b`        | ~9.0 GB | 64 GB / 16 GB| Stronger reasoning + multi-file   |
+| large | DeepSeek-Coder 33B     | `deepseek-coder:33b`       | ~19 GB  | 128 GB / 32 GB| Deep reasoning on large codebases|
+| large | Qwen2.5-Coder 32B      | `qwen2.5-coder:32b`        | ~20 GB  | 128 GB / 32 GB| Top-tier OSS coder, near-frontier|
+
+The "Stick / RAM" column is **target laptop** RAM — the machine you plug the
+USB into. Larger models will technically run with less, but tokens-per-second
+drops off a cliff once Ollama spills to disk.
+
+> ⚠ **First-prompt latency on large models.** A 32B model on a USB 3 stick
+> can take 30–90 seconds for the first response after launch — Ollama is
+> mmap'ing ~20 GB of weights off the USB. Subsequent prompts are fast because
+> the OS page-caches the blob.
+
+### Bring your own Ollama tag
+
+**Any tag from [ollama.com/library](https://ollama.com/library) works.**
+Pass it directly to `add-model`:
+
+```bash
+code-stick add-model qwen2.5-coder:14b
+code-stick add-model deepseek-coder-v2:16b
+code-stick add-model qwen2.5-coder:32b-instruct-q4_K_M
+code-stick add-model llama3.1:70b              # if your stick is huge
+```
+
+You'll get a confirmation prompt with the estimated size before the pull
+starts (skip with `--yes` for scripts). The curated list above is what we've
+tested and what shows up in the interactive picker; the tag escape hatch is
+for everything else.
+
+**Rule of thumb on quantization:** `Q4_K_M` is the sane default for code.
+Below Q4 quality drops noticeably; above Q4 you get marginal gains for ~50%
+more disk.
 
 ## Commands
 
@@ -103,11 +141,15 @@ code-stick install --targets host         # only stage binaries for this OS (sav
 code-stick install --targets mac,linux    # multi-OS subset (still portable across listed ones)
 code-stick add-targets all                # restore full portability later
 code-stick add-model qwen25-coder-7b --set-default
+code-stick add-model qwen2.5-coder:14b --yes      # raw Ollama tag, skip confirm
 code-stick remove-model phi3-mini
 code-stick uninstall --target E:\ --yes
 ```
 
-Available model IDs: `qwen25-coder-7b`, `deepseek-coder-6_7b`, `codegemma-7b`, `phi3-mini`.
+Available curated model IDs: `phi3-mini`, `deepseek-coder-6_7b`, `qwen25-coder-7b`,
+`codegemma-7b`, `qwen25-coder-14b`, `deepseek-coder-v2-16b`, `qwen25-coder-32b`,
+`deepseek-coder-33b`. Or pass any raw Ollama tag to `add-model` — see
+[Bring your own Ollama tag](#bring-your-own-ollama-tag) above.
 
 ### Trimming the stick with `--targets`
 
@@ -135,9 +177,15 @@ code-stick add-targets all                       # restore full portability
 
 ## Requirements
 
-- USB with **8+ GB free** (more for larger models)
-- Format **exFAT or NTFS** — FAT32's 4 GB file limit blocks Qwen and CodeGemma blobs (the installer detects this and bails with a clear message)
+- USB free space, depending on the model tier you pick:
+  - **small** (7B-class): 8+ GB free
+  - **medium** (14B–16B): 16+ GB free
+  - **large** (32B–33B): 32+ GB free
+- Format **exFAT or NTFS** — FAT32's 4 GB file limit blocks every model
+  blob above ~4 GB. The installer detects FAT32 and bails with a clear message.
 - Node 20+ on the install machine. Target machines need **nothing**.
+- Target laptop RAM: see the "Stick / RAM" column above. Rule of thumb: model
+  size × 1.2.
 
 ## Troubleshooting
 
