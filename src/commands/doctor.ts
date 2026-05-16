@@ -353,11 +353,35 @@ async function checkOllamaServe(drivePath: string): Promise<CheckResult> {
       };
     }
     const res = await fetch("http://127.0.0.1:11434/api/version");
-    const body = await res.text().catch(() => "");
+    const body = await res.json().catch(() => ({ version: "200 OK" }));
+    const version = (body as { version?: string }).version ?? "200 OK";
+
+    // Second probe: hit /api/tags to confirm OLLAMA_MODELS correctly linked
+    // to the USB data/ folder. If it returns models not in our manifest, or
+    // fails to see our manifest's models, OLLAMA_MODELS is likely pointing
+    // at the host's default store (~/.ollama/models) instead.
+    const tagsRes = await fetch("http://127.0.0.1:11434/api/tags");
+    const tagsBody = await tagsRes.json().catch(() => ({ models: [] }));
+    const activeTags = (tagsBody as { models: Array<{ name: string }> }).models.map((m) => m.name);
+    
+    const manifestTags = (manifest?.models ?? []).map((m) => m.tag);
+    const seen = manifestTags.filter((t) => activeTags.includes(t) || activeTags.includes(t + ":latest"));
+    
+    let detail = `version ${version}`;
+    if (seen.length === 0 && manifestTags.length > 0) {
+      return {
+        status: "fail",
+        label: "Ollama /api/tags",
+        detail: "USB model store NOT detected (env variable bug)",
+        remedy: "The server is running but cannot see the models on the USB. Check OLLAMA_MODELS env var.",
+      };
+    }
+    detail += ` (found ${seen.length}/${manifestTags.length} models)`;
+
     return {
       status: "pass",
       label: "Ollama /api/version",
-      detail: body.trim().slice(0, 60) || "200 OK",
+      detail,
     };
   } finally {
     await killProcess("ollama-doctor");
