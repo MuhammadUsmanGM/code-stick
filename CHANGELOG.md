@@ -27,9 +27,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   selected USB and disables entries that wouldn't fit (with a "needs X GB
   more" annotation) instead of letting the user pick a model they can't
   install. The dedicated space-check step still gets the final word.
+- **`docs/TRUST.md`** — a high-level overview of the project's security and
+  privacy pillars (Zero Residue, 100% Offline, Privacy-Preserving Bug Reports,
+  Binary Integrity, and Transparency).
 - README: rewritten "Coding models" section with size tiers, target-laptop
   RAM column, first-prompt-latency caveat for 32B models, and an explicit
   "bring your own Ollama tag" subsection.
+
+### Fixed
+- **exFAT compatibility for opencode providers.** The installer now uses
+  `--bin-links=false` during `npm install` to avoid symlink errors on FAT32
+  and exFAT USB sticks.
+- **Robust `OLLAMA_MODELS` passing on Windows.** The Windows launcher now
+  explicitly injects environment variables into the PowerShell spawn command,
+  ensuring the Ollama process correctly inherits the USB model store path.
+- **Improved `code-stick doctor` validation.** The doctor now hits Ollama's
+  `/api/tags` endpoint to verify that the server can actually see the models
+  on the USB, providing empirical proof of correct environment variable
+  linkage.
+- Install + add-model pickers no longer scroll the visible window when the
+  list is longer than inquirer's 7-row default — render the full list at
+  once (`pageSize: choices.length`, `loop: false`) so up/down moves the
+  cursor in a static list.
 
 ### Internal
 - `src/catalog/models.ts`: new helpers `isPlausibleOllamaTag` and
@@ -45,12 +64,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `package.json` keywords: dropped model-specific names (qwen, deepseek,
   codegemma, phi3) that bitrot as the catalog evolves; added durable
   concept keywords (airgapped, local-llm, byo-model, self-hosted, privacy).
-
-### Fixed
-- Install + add-model pickers no longer scroll the visible window when the
-  list is longer than inquirer's 7-row default — render the full list at
-  once (`pageSize: choices.length`, `loop: false`) so up/down moves the
-  cursor in a static list.
 
 ## 0.1.1
 
