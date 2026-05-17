@@ -11,6 +11,7 @@ import { loadManifest, saveManifest, defaultModel } from "../state/manifest.js";
 import { writeOpencodeConfig } from "../core/opencode-config.js";
 import { setupShutdownHooks, registerCleanup } from "../core/process-manager.js";
 import { stageAndSwapBinaries } from "../core/engine-staging.js";
+import { OPENCODE_VERSION, validateOpencodeVersion } from "../catalog/opencode.js";
 import { postInstallCleanup } from "../core/cleanup.js";
 import { promptWithEsc } from "../utils/prompt.js";
 import { reportSymlinkCapability } from "../core/preflight.js";
@@ -20,10 +21,16 @@ interface UpgradeEngineOptions {
   target?: string;
   yes?: boolean;
   cleanup?: boolean;
+  /**
+   * Opencode version to swap in. Omitted means the bundled default
+   * (`OPENCODE_VERSION`). Any other value must pass `validateOpencodeVersion`
+   * and additionally requires `CODE_STICK_ALLOW_UNVERIFIED=1` because the SHA
+   * for that version is not pinned in this code-stick release.
+   */
+  opencodeVersion?: string;
 }
 
 const OLLAMA_VERSIONS = { host: "v0.21.2", linux: "v0.13.0" } as const;
-const OPENCODE_VERSION = "v0.4.18";
 
 /**
  * Refresh just the engine + opencode binary trees on a stick without touching
@@ -57,6 +64,26 @@ export async function upgradeEngineCommand(opts: UpgradeEngineOptions): Promise<
     process.exit(1);
   }
 
+  // Resolve target opencode version. Reject malformed input as a domain
+  // error (matches install's contract). Default = bundled OPENCODE_VERSION;
+  // anything else is unverified-by-default and prints a loud banner below.
+  let opencodeVersion: string;
+  try {
+    opencodeVersion = opts.opencodeVersion ? validateOpencodeVersion(opts.opencodeVersion) : OPENCODE_VERSION;
+  } catch (err) {
+    process.env.CODE_STICK_NO_REPORT = "1";
+    throw err;
+  }
+  const currentOpencode = manifest.opencodeVersion;
+  const usingNonDefaultOpencode = opencodeVersion !== OPENCODE_VERSION;
+  if (usingNonDefaultOpencode) {
+    log.blank();
+    log.warn(`⚠  Upgrading to opencode ${opencodeVersion} (not the bundled default ${OPENCODE_VERSION}).`);
+    log.dim("Archives for this version are not SHA-pinned in this code-stick release.");
+    log.dim("The downloader will refuse unless CODE_STICK_ALLOW_UNVERIFIED=1 is set.");
+    log.blank();
+  }
+
   const def = defaultModel(manifest);
   const modelCount = manifest.models.length;
   // Refresh only what's already staged on this stick. A reduced-portability
@@ -70,11 +97,14 @@ export async function upgradeEngineCommand(opts: UpgradeEngineOptions): Promise<
   log.dim("Models in <USB>/data are NOT touched — only Ollama + opencode binaries are refreshed.");
 
   if (!opts.yes) {
+    const opencodeNote = opencodeVersion !== currentOpencode
+      ? ` (opencode ${currentOpencode} → ${opencodeVersion})`
+      : "";
     const ans = await promptWithEsc<{ proceed: boolean }>([
       {
         type: "confirm", name: "proceed",
-        message: `Re-download Ollama + opencode for ${refreshTargets.length} target(s) and atomically swap?`,
-        default: true,
+        message: `Re-download Ollama + opencode for ${refreshTargets.length} target(s) and atomically swap${opencodeNote}?`,
+        default: !usingNonDefaultOpencode,
       },
     ]);
     if (!ans || !ans.proceed) { log.info("Cancelled."); return; }
@@ -91,8 +121,8 @@ export async function upgradeEngineCommand(opts: UpgradeEngineOptions): Promise<
   reportSymlinkCapability(drivePath);
 
   log.blank();
-  log.step(1, 3, `Downloading + staging Ollama + opencode for ${refreshTargets.length} target(s)...`);
-  await stageAndSwapBinaries(drivePath, tempDir, refreshTargets);
+  log.step(1, 3, `Downloading + staging Ollama + opencode ${opencodeVersion} for ${refreshTargets.length} target(s)...`);
+  await stageAndSwapBinaries(drivePath, tempDir, refreshTargets, opencodeVersion);
 
   log.step(2, 3, "Refreshing launchers + opencode config...");
   writeOpencodeConfig(drivePath, manifest);
@@ -104,7 +134,7 @@ export async function upgradeEngineCommand(opts: UpgradeEngineOptions): Promise<
 
   log.step(3, 3, "Updating manifest...");
   manifest.ollamaVersions = { host: OLLAMA_VERSIONS.host, linux: OLLAMA_VERSIONS.linux };
-  manifest.opencodeVersion = OPENCODE_VERSION;
+  manifest.opencodeVersion = opencodeVersion;
   manifest.updatedAt = new Date().toISOString();
   saveManifest(drivePath, manifest);
 

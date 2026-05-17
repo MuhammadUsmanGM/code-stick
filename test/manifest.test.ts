@@ -60,6 +60,21 @@ describe("manifest round-trip", () => {
     expect(reloaded).toEqual(m);
   });
 
+  it("round-trips a non-default opencodeVersion (forward roll via --opencode-version)", () => {
+    const m: Manifest = {
+      version: "2",
+      installedAt: "2026-05-17T00:00:00.000Z",
+      models: [{ id: "qwen25-coder-7b", tag: "qwen2.5-coder:7b", addedAt: "2026-05-17T00:00:00.000Z" }],
+      defaultModelId: "qwen25-coder-7b",
+      targets: ["windows-x64"],
+      ollamaVersions: { host: "v0.21.2", linux: "v0.13.0" },
+      opencodeVersion: "v0.4.20",
+    };
+    saveManifest(tmpDir, m);
+    const reloaded = loadManifest(tmpDir);
+    expect(reloaded?.opencodeVersion).toBe("v0.4.20");
+  });
+
   it("migrates a legacy v1 manifest with structured ollamaVersion string", () => {
     fs.writeFileSync(path.join(tmpDir, "code-stick.json"), JSON.stringify({
       version: "1",

@@ -79,6 +79,12 @@ export function prestageOpencodeProviders(opencodeCacheDir: string): PrestageRes
         "--no-audit", "--no-fund",
         "--no-package-lock",
         "--bin-links=false",
+        // CRITICAL for exFAT/FAT32 compatibility: --install-strategy=nested
+        // (npm 9+) forces a fully-nested, symlink-free tree. Without this flag,
+        // npm hoists packages and may create node_modules symlinks that fail
+        // silently on FAT-family filesystems. npm <9 silently ignores this flag
+        // so the flag is safe to pass unconditionally.
+        "--install-strategy=nested",
         // CRITICAL for portability: --ignore-scripts disables postinstall hooks
         // that would otherwise run prebuild-install and download host-arch
         // native binaries. The USB has to boot on Windows / macOS / Linux

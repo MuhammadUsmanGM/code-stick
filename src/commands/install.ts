@@ -31,6 +31,7 @@ import { writeOpencodeConfig } from "../core/opencode-config.js";
 import { copyDirWithProgress } from "../core/copy.js";
 import { prestageOpencodeProviders } from "../core/opencode-prestage.js";
 import { stageAndSwapBinaries } from "../core/engine-staging.js";
+import { OPENCODE_VERSION, validateOpencodeVersion } from "../catalog/opencode.js";
 import { openInstallLog, closeInstallLog } from "../utils/install-log.js";
 
 interface InstallOptions {
@@ -45,6 +46,13 @@ interface InstallOptions {
    * function for accepted tokens.
    */
   targets?: string;
+  /**
+   * Raw value of --opencode-version. Undefined uses the bundled default
+   * (`OPENCODE_VERSION`). Any other value must pass `validateOpencodeVersion`;
+   * archives for non-default versions are NOT SHA-pinned, so the user has to
+   * additionally set `CODE_STICK_ALLOW_UNVERIFIED=1` for the download to proceed.
+   */
+  opencodeVersion?: string;
 }
 
 type InstallMode = "fast" | "slow";
@@ -53,7 +61,6 @@ type InstallMode = "fast" | "slow";
 // .tgz — v0.14+ is .tar.zst only). Manifest stores both as a structured map so
 // upgrade tooling can reason about per-target drift. opencode is uniform.
 const OLLAMA_VERSIONS = { host: "v0.21.2", linux: "v0.13.0" } as const;
-const OPENCODE_VERSION = "v0.4.18";
 
 const BINARY_FOOTPRINT_GB = 1.5;
 
@@ -72,6 +79,38 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     // Mark this as a domain error so cli.ts skips the bug-report path.
     process.env.CODE_STICK_NO_REPORT = "1";
     throw err;
+  }
+
+  // Resolve + validate --opencode-version before any I/O. A malformed value
+  // here is a user-input error (domain), not a bug.
+  let opencodeVersion: string;
+  try {
+    opencodeVersion = opts.opencodeVersion ? validateOpencodeVersion(opts.opencodeVersion) : OPENCODE_VERSION;
+  } catch (err) {
+    process.env.CODE_STICK_NO_REPORT = "1";
+    throw err;
+  }
+  const usingNonDefaultOpencode = opencodeVersion !== OPENCODE_VERSION;
+  if (usingNonDefaultOpencode) {
+    log.blank();
+    log.warn(`⚠  Using opencode ${opencodeVersion} (not the bundled default ${OPENCODE_VERSION}).`);
+    log.dim("Archives for this version are not SHA-pinned in this code-stick release.");
+    log.dim("The downloader will refuse to proceed unless CODE_STICK_ALLOW_UNVERIFIED=1 is set.");
+    log.dim("Track upstream fixes at https://github.com/sst/opencode/releases.");
+    log.blank();
+    if (!opts.yes) {
+      const ans = await promptWithEsc<{ proceed: boolean }>([
+        {
+          type: "confirm", name: "proceed",
+          message: `Continue with opencode ${opencodeVersion}?`,
+          default: false,
+        },
+      ]);
+      if (!ans || !ans.proceed) {
+        log.info("Cancelled.");
+        return;
+      }
+    }
   }
   const fullPortability = isFullPortability(selectedTargets);
   if (!fullPortability) {
@@ -363,7 +402,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   log.blank();
   log.step(1, totalSteps, `Staging binaries for ${selectedTargets.length} target(s)...`);
   log.step(2, totalSteps, "Atomic swap into <USB>/engine and <USB>/opencode...");
-  await stageAndSwapBinaries(drivePath, tempDir, selectedTargets);
+  await stageAndSwapBinaries(drivePath, tempDir, selectedTargets, opencodeVersion);
 
   log.step(3, totalSteps, `Pulling model ${model!.tag} (${installMode === "fast" ? "stage on host" : "direct to USB"})...`);
   try {
@@ -384,7 +423,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     defaultModelId: model!.id,
     targets: [...selectedTargets],
     ollamaVersions: { host: OLLAMA_VERSIONS.host, linux: OLLAMA_VERSIONS.linux },
-    opencodeVersion: OPENCODE_VERSION,
+    opencodeVersion,
   };
 
   log.step(4, totalSteps, "Writing opencode config + pre-staging providers + launchers...");

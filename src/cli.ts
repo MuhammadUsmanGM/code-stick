@@ -39,6 +39,11 @@ async function main() {
       "host, windows, mac, linux, or any of windows-x64,darwin-arm64,darwin-x64,linux-x64,linux-arm64. " +
       "Anything other than 'all' will print a non-portability warning.",
     )
+    .option(
+      "--opencode-version <ver>",
+      "Override the bundled opencode release (e.g. v0.4.20). Default is the version SHA-pinned in this code-stick build. " +
+      "Non-default versions are not SHA-pinned and require CODE_STICK_ALLOW_UNVERIFIED=1.",
+    )
     .action(async (opts) => { await installCommand(opts); });
 
   program
@@ -72,6 +77,11 @@ async function main() {
     .option("-t, --target <path>", "Upgrade this installation directory")
     .option("-y, --yes", "Skip confirmation")
     .option("--no-cleanup", "Keep installer archives + temp dirs after upgrade (debugging)")
+    .option(
+      "--opencode-version <ver>",
+      "Swap to this opencode release instead of the bundled default (e.g. v0.4.20). " +
+      "Non-default versions are not SHA-pinned and require CODE_STICK_ALLOW_UNVERIFIED=1.",
+    )
     .action(async (opts) => { await upgradeEngineCommand(opts); });
 
   program

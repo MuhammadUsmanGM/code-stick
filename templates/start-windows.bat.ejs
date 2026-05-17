@@ -1,6 +1,7 @@
 @echo off
 REM Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a
-REM code-stick launcher — Windows x64. Generated at install time; do not edit.
+REM code-stick launcher Ã¢â‚¬â€ Windows x64. Generated at install time; do not edit.
+REM Fix: OLLAMA_MODELS passed via -EnvironmentVariables hashtable (space-safe).
 setlocal ENABLEDELAYEDEXPANSION
 
 REM Resolve USB root (this script lives at <USB>\start-windows.bat).
@@ -23,7 +24,7 @@ set "XDG_STATE_HOME=%USB_ROOT%\state"
 REM Skip opencode's autoupdate check + filesystem watcher (USB I/O is slow).
 set "OPENCODE_DISABLE_AUTOUPDATE=1"
 set "OPENCODE_DISABLE_WATCHER=1"
-REM Pin the config file path explicitly — opencode honors $OPENCODE_CONFIG.
+REM Pin the config file path explicitly Ã¢â‚¬â€ opencode honors $OPENCODE_CONFIG.
 set "OPENCODE_CONFIG=%USB_ROOT%\config\opencode\opencode.json"
 
 if not exist "%OLLAMA_BIN%" (
@@ -39,7 +40,7 @@ if not exist "%OPENCODE_BIN%" (
   exit /b 1
 )
 
-REM Refuse to start if 11434 is already bound — we won't fight another Ollama
+REM Refuse to start if 11434 is already bound Ã¢â‚¬â€ we won't fight another Ollama
 REM and we don't want to silently fail the wait loop 30s later.
 powershell -NoProfile -Command "try { (New-Object Net.Sockets.TcpClient).Connect('127.0.0.1',11434); exit 0 } catch { exit 1 }" >nul 2>&1
 if %ERRORLEVEL%==0 (
@@ -50,7 +51,7 @@ if %ERRORLEVEL%==0 (
 
 echo [code-stick] Starting Ollama from USB...
 REM Capture the PID of the ollama process we spawn so we kill only ours on
-REM exit — never touch a pre-existing ollama.exe the user might be running.
+REM exit Ã¢â‚¬â€ never touch a pre-existing ollama.exe the user might be running.
 REM
 REM We spawn via PowerShell -PassThru and write $p.Id to a temp file. Parsing
 REM stdout via `for /f` is fragile: any banner / profile output / AV injection
@@ -59,7 +60,11 @@ REM survives that.
 set "OLLAMA_PID="
 set "OLLAMA_PID_FILE=%TEMP%\code-stick-ollama.pid"
 del /q "%OLLAMA_PID_FILE%" >nul 2>&1
-powershell -NoProfile -Command "$env:OLLAMA_MODELS = '%OLLAMA_MODELS%'; $env:OLLAMA_HOST = '%OLLAMA_HOST%'; $p = Start-Process -FilePath '%OLLAMA_BIN%' -ArgumentList 'serve' -WindowStyle Hidden -PassThru -RedirectStandardOutput '%TEMP%\code-stick-ollama.log' -RedirectStandardError '%TEMP%\code-stick-ollama.err'; [IO.File]::WriteAllText('%OLLAMA_PID_FILE%', $p.Id)" >nul 2>&1
+REM Set env vars at the process level ($env:X = Y modifies the process env
+REM block; Start-Process inherits it). CRITICAL: cast $p.Id to [string] --
+REM WriteAllText throws on PS 5.1 when given an int, leaving the PID file
+REM empty and triggering the "not defined OLLAMA_PID" guard (kills launcher).
+powershell -NoProfile -Command "$env:OLLAMA_MODELS = '%USB_ROOT%\data'; $env:OLLAMA_HOST = '127.0.0.1:11434'; $p = Start-Process -FilePath '%OLLAMA_BIN%' -ArgumentList 'serve' -WindowStyle Hidden -PassThru -RedirectStandardOutput '%TEMP%\code-stick-ollama.log' -RedirectStandardError '%TEMP%\code-stick-ollama.err'; [IO.File]::WriteAllText('%OLLAMA_PID_FILE%', [string]$p.Id)" >nul 2>&1
 if exist "%OLLAMA_PID_FILE%" set /p OLLAMA_PID=<"%OLLAMA_PID_FILE%"
 del /q "%OLLAMA_PID_FILE%" >nul 2>&1
 if not defined OLLAMA_PID (
@@ -69,7 +74,7 @@ if not defined OLLAMA_PID (
 )
 
 REM Wait for Ollama HTTP readiness (up to ~30s). Probe `/api/version` rather
-REM than a raw TCP connect — Ollama opens the listening socket *before* the
+REM than a raw TCP connect Ã¢â‚¬â€ Ollama opens the listening socket *before* the
 REM HTTP handler is wired up, so a TCP-only probe returns ready prematurely
 REM and opencode hits a 503 on its first request, surfacing as a confusing
 REM "model not found". Match start-mac.command and start-linux.sh.

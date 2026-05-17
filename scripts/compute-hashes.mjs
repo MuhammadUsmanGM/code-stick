@@ -1,25 +1,47 @@
 #!/usr/bin/env node
-// Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a
+// Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a | MUGM-d3c1-ocv2
 //
 // Fetch every Ollama + opencode release asset code-stick depends on and emit
 // the sha256 hashes. Run before publishing to npm so the catalog files no
 // longer contain "PENDING-*" placeholders.
 //
-//   node scripts/compute-hashes.mjs              # downloads + hashes all
+//   node scripts/compute-hashes.mjs                                  # all
 //   node scripts/compute-hashes.mjs --only=ollama
 //   node scripts/compute-hashes.mjs --only=opencode
+//   node scripts/compute-hashes.mjs --opencode-version=v0.4.20       # hash a new release
+//
+// OPENCODE_VERSION is sourced from src/catalog/opencode.ts so the script can't
+// drift from the catalog. Pass --opencode-version to hash a different release
+// (useful when prepping a catalog bump).
 //
 // Output is a JSON map { "<filename>": "<sha256>", ... } printed to stdout.
 // Paste each value into the matching catalog entry's `sha256` field.
 
 import { createHash } from "node:crypto";
-import { mkdtempSync, createWriteStream, statSync, rmSync } from "node:fs";
+import { mkdtempSync, createWriteStream, statSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(__dirname, "..");
+
+function readOpencodeVersionFromCatalog() {
+  const src = readFileSync(resolve(REPO_ROOT, "src/catalog/opencode.ts"), "utf8");
+  const m = src.match(/OPENCODE_VERSION\s*=\s*"(v\d+\.\d+\.\d+)"/);
+  if (!m) {
+    throw new Error("Could not find OPENCODE_VERSION in src/catalog/opencode.ts — refusing to compute hashes against an unknown version.");
+  }
+  return m[1];
+}
+
+const opencodeOverride = process.argv.find((a) => a.startsWith("--opencode-version="));
+const OPENCODE_VERSION = opencodeOverride
+  ? opencodeOverride.slice("--opencode-version=".length)
+  : readOpencodeVersionFromCatalog();
+
 const OLLAMA_VERSION = "v0.21.2";
-const OPENCODE_VERSION = "v0.4.18";
 
 const OLLAMA_BASE = `https://github.com/ollama/ollama/releases/download/${OLLAMA_VERSION}`;
 const OPENCODE_BASE = `https://github.com/sst/opencode/releases/download/${OPENCODE_VERSION}`;

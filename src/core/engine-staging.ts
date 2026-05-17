@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { ALL_TARGETS, type Target } from "../catalog/targets.js";
 import { OLLAMA, ollamaBinaryRel } from "../catalog/ollama.js";
-import { OPENCODE, opencodeBinaryRel } from "../catalog/opencode.js";
+import { OPENCODE_VERSION, opencodeArtifactsFor, opencodeBinaryRel } from "../catalog/opencode.js";
 import { download } from "./downloader.js";
 import { extractZipFile, extractTarFile, ensureBinaryAt, chmodExecRecursive } from "./extract.js";
 import { stripQuarantineIfMac } from "./macos.js";
@@ -37,6 +37,7 @@ export async function stageAndSwapBinaries(
   drivePath: string,
   archiveTempDir: string,
   targets: readonly Target[] = ALL_TARGETS,
+  opencodeVersion: string = OPENCODE_VERSION,
 ): Promise<void> {
   if (targets.length === 0) {
     throw new Error("Internal: stageAndSwapBinaries called with empty targets list.");
@@ -67,9 +68,10 @@ export async function stageAndSwapBinaries(
     await fetchAndExtractOllama(t, path.join(engineStaging, t), archiveTempDir);
   }
 
-  log.info(`Downloading opencode for ${targets.length} target(s)...`);
+  log.info(`Downloading opencode ${opencodeVersion} for ${targets.length} target(s)...`);
+  const opencodeArtifacts = opencodeArtifactsFor(opencodeVersion);
   for (const t of targets) {
-    await fetchAndExtractOpencode(t, path.join(opencodeStaging, t), archiveTempDir);
+    await fetchAndExtractOpencode(t, path.join(opencodeStaging, t), archiveTempDir, opencodeArtifacts);
   }
 
   // Partial install: graft staged targets into existing live tree so
@@ -124,8 +126,13 @@ async function fetchAndExtractOllama(target: Target, destDir: string, tempDir: s
   ensureExecutable(path.join(destDir, rel));
 }
 
-async function fetchAndExtractOpencode(target: Target, destDir: string, tempDir: string): Promise<void> {
-  const art = OPENCODE[target];
+async function fetchAndExtractOpencode(
+  target: Target,
+  destDir: string,
+  tempDir: string,
+  artifacts: ReturnType<typeof opencodeArtifactsFor>,
+): Promise<void> {
+  const art = artifacts[target];
   fs.mkdirSync(destDir, { recursive: true });
   const archivePath = path.join(tempDir, art.filename);
   await download({

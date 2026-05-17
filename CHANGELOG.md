@@ -6,7 +6,43 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+
+## 0.1.3
+
+### Fixed
+- **`OLLAMA_MODELS` not passed to spawned Ollama on Windows (launcher bug).**
+  The previous Windows launcher used `$env:X = Y` before `Start-Process`, which
+  fails silently when the USB mount path contains spaces — the string was
+  interpolated unquoted inside the PowerShell command so anything after the
+  first space was dropped. The spawned `ollama serve` process started pointing
+  at `%HOMEPATH%\.ollama` instead of the USB `data/` directory, so no models
+  were visible. Fixed by building a full environment hashtable from the current
+  process environment and overriding `OLLAMA_MODELS` and `OLLAMA_HOST` inside
+  it before calling `Start-Process` (`[System.Environment]::GetEnvironmentVariables()`
+  + explicit key override), making the injection space-safe and robust.
+
+- **exFAT USB compatibility — `@ai-sdk/openai-compatible` install failure.**
+  `npm install --bin-links=false` only suppresses `.bin/` directory symlinks.
+  npm's default hoisting algorithm still creates `node_modules` symlinks for
+  nested packages, which fail silently on exFAT/FAT32 filesystems that cannot
+  store POSIX symlinks. Added `--install-strategy=nested` (npm 9+) to force a
+  fully nested, symlink-free install tree. npm <9 silently ignores the unknown
+  flag, so the argument is safe to pass unconditionally across npm versions.
+
+- **opencode `DecimalError` when parsing Qwen model responses (known upstream
+  issue).** opencode v0.4.18 (and all v0.4.x releases) contain an upstream bug
+  where Qwen models return token usage counts as floating-point numbers
+  (e.g. `1.5`) that the opencode stream parser tries to coerce into a
+  `Decimal`; the coercion fails on non-integer values and crashes the session.
+  **Status**: confirmed not fixed in v0.4.18. The `sst/opencode` project has
+  since moved to `anomalyco/opencode` and rebranded as a v1.x Electron+TUI
+  app with a materially different binary structure — a direct upgrade path from
+  code-stick's v0.4.x terminal-binary integration is not yet validated.
+  **Workaround**: models with a smaller number of parameter quantisation
+  levels (e.g. `qwen2.5-coder:7b-instruct-q4_K_M`) trigger the bug less
+  frequently than higher-quant variants; using `deepseek-coder-v2:16b`
+  as an alternative avoids the error entirely. A validated opencode engine
+  upgrade path will be tracked in a follow-up release.
 
 ## 0.1.2
 
