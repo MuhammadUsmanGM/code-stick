@@ -7,6 +7,45 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.0
+
+### Fixed
+- **opencode `DecimalError` on Qwen models — resolved by upgrading to v1.15.4.**
+  The previous bundled opencode (`v0.4.18`, from the now-archived
+  `opencode-ai/opencode` repo) crashed mid-stream parsing Qwen response token
+  counts as `Decimal`. The fix lives upstream in `sst/opencode` v1.x, which
+  explicitly "tolerated legacy stored numeric values in sessions, diffs, retry
+  events" and "fixed old sessions with negative token counts causing message
+  loads to fail." code-stick now bundles `v1.15.4`; existing sticks can pull
+  the new binary in place via `code-stick upgrade-engine` without touching
+  the model store.
+
+### Changed
+- **Bundled opencode bumped `v0.4.18` → `v1.15.4`.** Source repo switched from
+  the archived `opencode-ai/opencode` to the actively-maintained `sst/opencode`.
+  Linux assets now ship as `.tar.gz` instead of `.zip` (extractor already
+  handled both — no path changes for users).
+- **`upgrade-engine` re-pre-stages opencode providers on every run.** Previous
+  versions left provider pre-staging to `install` only, which created a gap on
+  the v0.4 → v1.x boundary: the old `@ai-sdk/openai-compatible` `node_modules`
+  could survive a binary swap. `upgrade-engine` now wipes the provider cache
+  when crossing the v0.x → v1.x major boundary, then re-prestages cleanly so
+  v1.x first-launch doesn't reach out to npm.
+- **`code-stick doctor` warns on legacy opencode versions.** Sticks whose
+  manifest reports `v0.3.x` or `v0.4.x` opencode now get a yellow warning with
+  the upgrade-engine remedy inline, surfacing the DecimalError fix path
+  proactively instead of waiting for the user to hit the bug.
+- **`opencode.json` now declares `tools: true` per model.** Required by the
+  v1.x provider schema; ignored by older v0.4.x binaries so a stick caught
+  mid-upgrade still launches.
+
+### Internal
+- Doctor's `/api/tags` env-var check now receives the manifest as an
+  argument — previously referenced an out-of-scope `manifest` symbol that
+  would have thrown at runtime. Pre-existing bug from the v0.1.1 launcher
+  fix, surfaced by typecheck during the v1.x catalog edits.
+
+
 ## 0.1.3
 
 ### Fixed

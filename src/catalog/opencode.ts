@@ -1,8 +1,12 @@
-// Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a | MUGM-d3c1-ocv1
+// Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a | MUGM-d3c1-ocv2
 // opencode (sst/opencode) standalone binaries. The releases publish per-target
 // archives — we bundle all five so a USB installed from any host can launch on
 // any target machine. Hashes are PENDING until the catalog is finalized; the
 // downloader gates each file on its sha256.
+//
+// v1.x note: Linux assets ship as .tar.gz, Windows + macOS as .zip. The release
+// pattern changed between v0.4.x (all-zip) and v1.x — engine-staging.ts already
+// branches on `art.type` so this file is the only place that needs to know.
 
 import type { Target } from "./targets.js";
 
@@ -16,27 +20,43 @@ export interface OpencodeArtifact {
 
 /** The opencode release we ship by default and whose per-target SHAs are
  *  pinned below. Exported so command handlers can fall back to it when the
- *  user doesn't override with `--opencode-version`. */
-export const OPENCODE_VERSION = "v0.4.18";
+ *  user doesn't override with `--opencode-version`.
+ *
+ *  v1.15.4 (sst/opencode) — fixes the DecimalError class of stream-parsing
+ *  bugs that bit users of v0.4.x ("tolerated legacy stored numeric values
+ *  in sessions, diffs, retry events"). v0.4.x is from the archived
+ *  opencode-ai/opencode repo and is no longer maintained. */
+export const OPENCODE_VERSION = "v1.15.4";
 const BASE = (v: string) => `https://github.com/sst/opencode/releases/download/${v}`;
 
 const FILENAMES: Record<Target, string> = {
   "windows-x64": "opencode-windows-x64.zip",
   "darwin-arm64": "opencode-darwin-arm64.zip",
   "darwin-x64":   "opencode-darwin-x64.zip",
-  "linux-x64":    "opencode-linux-x64.zip",
-  "linux-arm64":  "opencode-linux-arm64.zip",
+  "linux-x64":    "opencode-linux-x64.tar.gz",
+  "linux-arm64":  "opencode-linux-arm64.tar.gz",
+};
+
+const TYPES: Record<Target, "zip" | "tgz"> = {
+  "windows-x64": "zip",
+  "darwin-arm64": "zip",
+  "darwin-x64":   "zip",
+  "linux-x64":    "tgz",
+  "linux-arm64":  "tgz",
 };
 
 /** SHAs pinned for OPENCODE_VERSION. The catalog-drift script
  *  (`scripts/check-catalog-hashes.mjs`) verifies these against the live
- *  release tarballs on every CI run. */
+ *  release tarballs on every CI run.
+ *
+ *  Computed against sst/opencode v1.15.4 release assets — verified by
+ *  downloading and hashing each archive locally before pinning. */
 const PINNED_SHA: Record<Target, string> = {
-  "windows-x64":  "8cb328f72da3a11410bc13e765d1630e028d71f821d93bf8c72387dc2ae5c8ee",
-  "darwin-arm64": "33c3ffab030deac8cfe7146da417c5ff1dc524518a3febe9c940f2c5fe27dedb",
-  "darwin-x64":   "c8c75e7e7e0222e105c13baa80c7c2a6e3fe74c31ef408dbefbedcf9d40b18db",
-  "linux-x64":    "1968fcc667b7dabd0c9b215af020cd13e12a056b8ec258074948377161d09ac2",
-  "linux-arm64":  "9d0229704cf889afa89ba9a58053e811bafb5c4d32edc76f396a03754c12e08b",
+  "windows-x64":  "bd14f5aca2263a10fc793aa6a576b72aa409b737b421284a8ec75e29f328e531",
+  "darwin-arm64": "20fb7ae9a6b9876832850b7899304c38261ac53761cb77a2052be49b02fd27e6",
+  "darwin-x64":   "a2ac8745949960467299889435a03d0de1719f2b431d46431d4a5e106bb5c8da",
+  "linux-x64":    "f0734928d5df360777f51f807df18b28c1d0c006f806ad0bd35a2420fabd0835",
+  "linux-arm64":  "978f070e280c36ea6fd9a03d64f813028dbc2434077ad5cb6aecf37423e156d7",
 };
 
 /** Build the artifact record for a given opencode version. If `version` matches
@@ -56,7 +76,7 @@ export function opencodeArtifactsFor(version: string): Record<Target, OpencodeAr
     out[t] = {
       url: `${base}/${FILENAMES[t]}`,
       filename: FILENAMES[t],
-      type: "zip",
+      type: TYPES[t],
       sha256: pinned ? PINNED_SHA[t] : undefined,
     };
   }

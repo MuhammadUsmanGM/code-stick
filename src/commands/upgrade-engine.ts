@@ -9,6 +9,7 @@ import { ALL_TARGETS, type Target } from "../catalog/targets.js";
 import { renderLaunchers } from "../core/launcher-gen.js";
 import { loadManifest, saveManifest, defaultModel } from "../state/manifest.js";
 import { writeOpencodeConfig } from "../core/opencode-config.js";
+import { prestageOpencodeProviders } from "../core/opencode-prestage.js";
 import { setupShutdownHooks, registerCleanup } from "../core/process-manager.js";
 import { stageAndSwapBinaries } from "../core/engine-staging.js";
 import { OPENCODE_VERSION, validateOpencodeVersion } from "../catalog/opencode.js";
@@ -120,12 +121,40 @@ export async function upgradeEngineCommand(opts: UpgradeEngineOptions): Promise<
 
   reportSymlinkCapability(drivePath);
 
+  // v0.4 → v1.x migration: the cached @ai-sdk/openai-compatible node_modules
+  // tree pre-staged for v0.4.x may carry incompatible internals once v1.x
+  // first-launches against it. Wipe the cache so prestage below re-builds a
+  // clean tree against the v1.x provider expectations. Only triggers on the
+  // major-version boundary — same-major upgrades keep their cache.
+  const crossingV1Boundary =
+    currentOpencode.startsWith("v0.") && !opencodeVersion.startsWith("v0.");
+  if (crossingV1Boundary) {
+    const cacheDir = usbPaths(drivePath).opencodeCache;
+    log.dim(`v0.4 → v1.x boundary detected — wiping stale opencode provider cache at ${cacheDir}`);
+    try { fs.rmSync(cacheDir, { recursive: true, force: true }); }
+    catch (err) { log.warn(`Could not wipe ${cacheDir}: ${(err as Error).message}`); }
+  }
+
   log.blank();
   log.step(1, 3, `Downloading + staging Ollama + opencode ${opencodeVersion} for ${refreshTargets.length} target(s)...`);
   await stageAndSwapBinaries(drivePath, tempDir, refreshTargets, opencodeVersion);
 
-  log.step(2, 3, "Refreshing launchers + opencode config...");
+  log.step(2, 3, "Refreshing launchers + opencode config + providers...");
   writeOpencodeConfig(drivePath, manifest);
+  // Re-prestage providers after every engine swap. Without this, an upgrade
+  // from v0.4 → v1.x would leave a stick whose binary is v1.x but whose
+  // provider cache is either missing (after the wipe above) or holds the
+  // v0.4-era node_modules — both cause opencode to attempt a network bun-add
+  // on first launch, defeating the airgap pitch. Cheap on same-version
+  // upgrades: prestage is idempotent and finishes in ~seconds when the
+  // package is already resolved.
+  const p = usbPaths(drivePath);
+  const prestage = prestageOpencodeProviders(p.opencodeCache);
+  if (!prestage.ok) {
+    log.warn(`Could not pre-stage opencode provider package: ${prestage.reason}`);
+    log.warn("opencode may attempt a network install on first launch.");
+    log.warn("Run upgrade-engine again on an online host, or run opencode once on an online machine to populate the cache.");
+  }
   if (def) {
     renderLaunchers(drivePath, { modelTag: def.tag, targets: refreshTargets });
   } else {

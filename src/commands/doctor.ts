@@ -72,6 +72,7 @@ export async function doctorCommand(opts: DoctorOptions): Promise<void> {
 
   if (manifest) {
     checks.push(checkDefaultModel(manifest));
+    checks.push(checkOpencodeManifestVersion(manifest));
     checks.push(...checkBundledBinaries(drivePath));
     checks.push(checkHostBinary(drivePath));
     checks.push(...checkModelStore(drivePath, manifest));
@@ -79,7 +80,7 @@ export async function doctorCommand(opts: DoctorOptions): Promise<void> {
 
   checks.push(await checkPort());
   if (!opts.noProbe && manifest) {
-    checks.push(await checkOllamaServe(drivePath));
+    checks.push(await checkOllamaServe(drivePath, manifest));
   }
   if (manifest) {
     checks.push(await checkOpencodeVersion(drivePath));
@@ -194,6 +195,37 @@ function checkDefaultModel(m: NonNullable<ReturnType<typeof loadManifest>>): Che
   return { status: "pass", label: "Default model", detail: def.tag };
 }
 
+/**
+ * Surface sticks that are still on the archived opencode-ai/opencode v0.4.x
+ * line. That release had a stream-parsing DecimalError on Qwen and similar
+ * models; v1.x (sst/opencode) fixed it. We can't tell from inside the binary
+ * which version is bundled — the manifest is the source of truth.
+ *
+ * Warn (not fail): the stick still launches, the user just hits the bug on
+ * whatever model triggers DecimalError. Steering them to upgrade-engine is
+ * the right remedy. MUGM-d3c1-ocv2.
+ */
+function checkOpencodeManifestVersion(m: NonNullable<ReturnType<typeof loadManifest>>): CheckResult {
+  const v = m.opencodeVersion || "";
+  if (v.startsWith("v0.4") || v.startsWith("v0.3")) {
+    return {
+      status: "warn",
+      label: "opencode version",
+      detail: `${v} — known DecimalError on Qwen models`,
+      remedy: "Run: code-stick upgrade-engine  to swap in v1.15.4 (fixes upstream parser bug).",
+    };
+  }
+  if (!v) {
+    return {
+      status: "warn",
+      label: "opencode version",
+      detail: "not recorded in manifest",
+      remedy: "Run: code-stick upgrade-engine  to refresh.",
+    };
+  }
+  return { status: "pass", label: "opencode version", detail: v };
+}
+
 function checkBundledBinaries(drivePath: string): CheckResult[] {
   const out: CheckResult[] = [];
   const p = usbPaths(drivePath);
@@ -304,7 +336,10 @@ async function checkPort(): Promise<CheckResult> {
   };
 }
 
-async function checkOllamaServe(drivePath: string): Promise<CheckResult> {
+async function checkOllamaServe(
+  drivePath: string,
+  manifest: NonNullable<ReturnType<typeof loadManifest>>,
+): Promise<CheckResult> {
   // Skip the spawn if the port is bound — checkPort already failed; running
   // a temp server would also fail and the duplicate error is noise.
   if (await isPortInUse(11434)) {
@@ -362,10 +397,10 @@ async function checkOllamaServe(drivePath: string): Promise<CheckResult> {
     // at the host's default store (~/.ollama/models) instead.
     const tagsRes = await fetch("http://127.0.0.1:11434/api/tags");
     const tagsBody = await tagsRes.json().catch(() => ({ models: [] }));
-    const activeTags = (tagsBody as { models: Array<{ name: string }> }).models.map((m) => m.name);
-    
-    const manifestTags = (manifest?.models ?? []).map((m) => m.tag);
-    const seen = manifestTags.filter((t) => activeTags.includes(t) || activeTags.includes(t + ":latest"));
+    const activeTags = (tagsBody as { models: Array<{ name: string }> }).models.map((m: { name: string }) => m.name);
+
+    const manifestTags = manifest.models.map((m) => m.tag);
+    const seen = manifestTags.filter((t: string) => activeTags.includes(t) || activeTags.includes(t + ":latest"));
     
     let detail = `version ${version}`;
     if (seen.length === 0 && manifestTags.length > 0) {

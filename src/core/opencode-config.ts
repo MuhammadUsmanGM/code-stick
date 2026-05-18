@@ -20,10 +20,14 @@ export function writeOpencodeConfig(drivePath: string, manifest: Manifest): void
   const dir = path.join(p.config, "opencode");
   fs.mkdirSync(dir, { recursive: true });
 
-  const models: Record<string, { name: string }> = {};
+  // v1.x note: per-model `tools: true` is documented in the opencode v1.x
+  // provider schema as the way to declare tool-use support. Older v0.4.x
+  // ignored unknown model fields, so this is forward-safe even if a stick
+  // momentarily holds a v0.4.x binary mid-upgrade. MUGM-d3c1-ocv2.
+  const models: Record<string, { name: string; tools: boolean }> = {};
   for (const m of manifest.models) {
     const meta = findModel(m.id);
-    models[m.tag] = { name: meta?.name ?? m.tag };
+    models[m.tag] = { name: meta?.name ?? m.tag, tools: true };
   }
 
   const def = defaultModel(manifest);
