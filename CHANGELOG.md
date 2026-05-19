@@ -7,6 +7,35 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## 0.2.1
+
+### Fixed
+- **Context window too small — models hallucinating tool calls and ignoring
+  instructions.** Ollama's server default is 2048 tokens, which is smaller
+  than opencode's system prompt plus tool definitions alone (~3–4k tokens).
+  Without an explicit override the prompt was silently truncated and models
+  would invent tool calls or drift off-task. Every catalog model now gets a
+  per-tag `num_ctx` baked in immediately after `ollama pull` (e.g. 32k for
+  Qwen2.5-Coder, 16k for DeepSeek-Coder, 8k for phi3-mini at its native RoPE
+  limit). Existing sticks can pick up the fix without re-downloading weights
+  via `code-stick upgrade-engine`, which rebakes all installed models in place.
+
+### Added
+- **`--num-ctx <n>` on `code-stick add-model`.** Override the baked context
+  window when pulling a custom Ollama tag (e.g.
+  `code-stick add-model llama3.1:70b --num-ctx 32768`).
+- **`rebakeAllModels` during `upgrade-engine`.** Walks models listed in the
+  stick manifest and re-runs `ollama create … PARAMETER num_ctx …` for each,
+  using catalog defaults or the value stored at install time.
+- **`numCtx` on `CodingModel`.** Each catalog entry declares a sane native
+  context limit instead of a one-size-fits-all tier bucket.
+- **Docs: `docs/ARCHITECTURE.md`, `docs/COMMANDS.md`, `docs/MODELS.md`,
+  `docs/TROUBLESHOOTING.md`.** Architecture overview, per-command flags and
+  usage, model tiers and context guidance, and a troubleshooting playbook
+  (including the hallucination / context-window symptom). README trimmed and
+  linked to these guides; command table now lists `update` and `add-targets`.
+
+
 ## 0.2.0
 
 ### Fixed
