@@ -2,13 +2,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ALL_TARGETS, type Target } from "../catalog/targets.js";
-import { OLLAMA, ollamaBinaryRel } from "../catalog/ollama.js";
-import { OPENCODE_VERSION, opencodeArtifactsFor, opencodeBinaryRel } from "../catalog/opencode.js";
-import { download } from "./downloader.js";
-import { extractZipFile, extractTarFile, ensureBinaryAt, chmodExecRecursive } from "./extract.js";
+import { OPENCODE_VERSION, opencodeArtifactsFor } from "../catalog/opencode.js";
 import { stripQuarantineIfMac } from "./macos.js";
 import { registerCleanup } from "./process-manager.js";
 import { log } from "../utils/logger.js";
+import {
+  bindArchiveDestDirs,
+  buildArchiveWorkUnits,
+  runArchiveStagingPipeline,
+} from "./archive-staging.js";
 
 /**
  * Download + extract Ollama and opencode for every target into hidden staging
@@ -63,16 +65,15 @@ export async function stageAndSwapBinaries(
     try { fs.rmSync(opencodeStaging, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 
-  log.info(`Downloading Ollama for ${targets.length} target(s)...`);
-  for (const t of targets) {
-    await fetchAndExtractOllama(t, path.join(engineStaging, t), archiveTempDir);
-  }
-
-  log.info(`Downloading opencode ${opencodeVersion} for ${targets.length} target(s)...`);
   const opencodeArtifacts = opencodeArtifactsFor(opencodeVersion);
-  for (const t of targets) {
-    await fetchAndExtractOpencode(t, path.join(opencodeStaging, t), archiveTempDir, opencodeArtifacts);
-  }
+  const units = buildArchiveWorkUnits(targets, targets, opencodeArtifacts);
+  bindArchiveDestDirs(units, engineStaging, opencodeStaging, targets, targets);
+
+  log.info(
+    `Staging ${targets.length} target(s) ` +
+    `(${units.length} unique archive${units.length === 1 ? "" : "s"}, pipelined download + extract)...`,
+  );
+  await runArchiveStagingPipeline(archiveTempDir, units);
 
   // Partial install: graft staged targets into existing live tree so
   // unrelated targets already on the stick survive the swap. Full install:
@@ -108,50 +109,6 @@ function mergeStagedTargets(liveRoot: string, stagingRoot: string, targets: read
     swapDir(liveDir, stagingDir, backupDir);
   }
   try { fs.rmSync(stagingRoot, { recursive: true, force: true }); } catch { /* ignore */ }
-}
-
-async function fetchAndExtractOllama(target: Target, destDir: string, tempDir: string): Promise<void> {
-  const art = OLLAMA[target];
-  fs.mkdirSync(destDir, { recursive: true });
-  const archivePath = path.join(tempDir, art.filename);
-  await download({
-    url: art.url, mirrors: art.mirrors, dest: archivePath,
-    expectedHash: art.sha256, label: `ollama ${target}`,
-  });
-  if (art.type === "zip") await extractZipFile(archivePath, destDir);
-  else await extractTarFile(archivePath, destDir);
-  const rel = ollamaBinaryRel(target);
-  ensureBinaryAt(destDir, rel, `ollama ${target}`);
-  if (art.type === "zip" && target !== "windows-x64" && target !== "windows-arm64") chmodExecRecursive(destDir);
-  ensureExecutable(path.join(destDir, rel));
-}
-
-async function fetchAndExtractOpencode(
-  target: Target,
-  destDir: string,
-  tempDir: string,
-  artifacts: ReturnType<typeof opencodeArtifactsFor>,
-): Promise<void> {
-  const art = artifacts[target];
-  fs.mkdirSync(destDir, { recursive: true });
-  const archivePath = path.join(tempDir, art.filename);
-  await download({
-    url: art.url, mirrors: art.mirrors, dest: archivePath,
-    expectedHash: art.sha256, label: `opencode ${target}`,
-  });
-  if (art.type === "zip") await extractZipFile(archivePath, destDir);
-  else await extractTarFile(archivePath, destDir);
-  const rel = opencodeBinaryRel(target);
-  ensureBinaryAt(destDir, rel, `opencode ${target}`);
-  if (art.type === "zip" && target !== "windows-x64" && target !== "windows-arm64") chmodExecRecursive(destDir);
-  ensureExecutable(path.join(destDir, rel));
-}
-
-function ensureExecutable(binPath: string): void {
-  if (!fs.existsSync(binPath)) return;
-  if (process.platform === "win32") return;
-  try { fs.chmodSync(binPath, 0o755); }
-  catch { /* FAT/exFAT — chmod is a no-op there. Launchers handle perm errors. */ }
 }
 
 /**

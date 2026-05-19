@@ -44,7 +44,13 @@ code-stick uninstall --target E:\ --yes
 | Mode       | What it does                                       | Needs                                                          | Best when                              |
 | ---------- | -------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------- |
 | **Fast**   | Pull model into host temp, then copy blobs to USB. | ~2× model size of free space in `%TEMP%`/`/tmp` (auto-cleaned) | Slow USB sticks — usually much faster  |
-| **Direct** | Pull model straight onto the USB.                  | Nothing extra on host                                          | Tiny host disk; fast USB 3 stick       |
+| **Direct** | Pull model straight onto the USB (Ollama pull scratch uses host `%TEMP%`; final blobs on USB). | Minimal extra host temp during pull | Tiny host disk; fast USB 3 stick |
+
+**Direct install optimizations (engine staging):** installer archives are deduped
+(e.g. one `ollama-darwin.tgz` for both Mac arches), downloaded with up to two
+in flight while the previous archive extracts, and **deleted from the stick
+immediately after extract** so `.code-stick-tmp` does not hold ~5 GB of zips
+until the end.
 
 If the host and USB resolve to the same physical device, Fast is
 auto-skipped (no perf gain, doubles disk use).

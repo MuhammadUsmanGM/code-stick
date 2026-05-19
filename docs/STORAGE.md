@@ -111,7 +111,9 @@ picker — when judging fit.
 
 **Fast install mode** needs extra **temporary** space on the **install
 machine** (~2× model size in `%TEMP%` / `/tmp`). It does not change how much
-ends up on the USB. See [COMMANDS.md](COMMANDS.md#fast-vs-direct-install).
+ends up on the USB. **Direct** uses host temp for Ollama pull scratch and
+deletes each engine archive from the stick right after extract. See
+[COMMANDS.md](COMMANDS.md#fast-vs-direct-install).
 
 **FAT32** is rejected for models above ~4 GB (single-file limit). Use **exFAT**
 or **NTFS**. See [README.md](../README.md#requirements).

@@ -137,7 +137,9 @@ export async function addModelCommand(modelId: string | undefined, opts: AddMode
 
   log.info(`Pulling ${resolved.tag} into USB store...`);
   try {
-    await pullModelTag(drivePath, resolved.tag, undefined, resolved.numCtxOverride);
+    await pullModelTag(drivePath, resolved.tag, undefined, resolved.numCtxOverride, {
+      hostPullScratch: true,
+    });
   } finally {
     await stopAll().catch(() => undefined);
   }

@@ -9,18 +9,41 @@ import { usbPaths } from "../utils/paths.js";
 import { ollamaBinaryRel } from "../catalog/ollama.js";
 import { getNumCtxForTag } from "../catalog/models.js";
 import {
-  checkPortFree, waitForOllama, registerProcess, killProcess,
+  checkPortFree, waitForOllama, registerProcess, killProcess, registerCleanup,
 } from "./process-manager.js";
+
+export interface PullModelOptions {
+  /**
+   * Point TMPDIR/TEMP/TMP at host temp during `ollama pull` so download
+   * buffers and unpack scratch hit the SSD, while OLLAMA_MODELS still targets
+   * the USB. Helps Direct-to-USB installs on slow sticks.
+   */
+  hostPullScratch?: boolean;
+}
 
 /**
  * Spawn a temp Ollama server pointed at the USB store and run an arbitrary
  * Ollama subcommand against it. Used by `install`, `add-model`, and
  * `remove-model` so all three share one server-lifecycle implementation.
  */
+function hostPullScratchEnv(): { env: NodeJS.ProcessEnv; dispose: () => void } {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "code-stick-ollama-scratch-"));
+  const dispose = () => {
+    try { fs.rmSync(scratch, { recursive: true, force: true }); } catch { /* ignore */ }
+  };
+  registerCleanup(dispose);
+  log.dim(`Ollama pull scratch on host: ${scratch}`);
+  return {
+    env: { TMPDIR: scratch, TEMP: scratch, TMP: scratch },
+    dispose,
+  };
+}
+
 async function withTempOllama<T>(
   drivePath: string,
   fn: (ollamaBin: string, env: NodeJS.ProcessEnv) => Promise<T>,
   dataDirOverride?: string,
+  pullOptions?: PullModelOptions,
 ): Promise<T> {
   await checkPortFree();
 
@@ -35,8 +58,10 @@ async function withTempOllama<T>(
     );
   }
 
+  const scratch = pullOptions?.hostPullScratch ? hostPullScratchEnv() : null;
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    ...(scratch?.env ?? {}),
     OLLAMA_MODELS: dataDirOverride ?? p.data,
     OLLAMA_HOST: "127.0.0.1:11434",
   };
@@ -68,6 +93,7 @@ async function withTempOllama<T>(
     }
     return await fn(ollamaBin, env);
   } finally {
+    scratch?.dispose();
     log.dim("Stopping temporary Ollama server...");
     await killProcess("ollama-temp");
   }
@@ -89,6 +115,7 @@ export async function pullModelTag(
   tag: string,
   dataDirOverride?: string,
   numCtxOverride?: number,
+  pullOptions?: PullModelOptions,
 ): Promise<void> {
   const dataDir = dataDirOverride ?? usbPaths(drivePath).data;
   try {
@@ -107,7 +134,7 @@ export async function pullModelTag(
       // MUGM-ctx-7a92.
       const numCtx = numCtxOverride ?? getNumCtxForTag(tag);
       await bakeNumCtx(bin, env, tag, numCtx);
-    }, dataDirOverride);
+    }, dataDirOverride, pullOptions);
   } catch (err) {
     // The temp server is killed (tree-kill SIGTERM with grace) before this
     // catch fires; if `ollama pull` was mid-write, partial blob files may

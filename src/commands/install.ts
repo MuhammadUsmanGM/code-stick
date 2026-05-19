@@ -409,7 +409,9 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     if (installMode === "fast") {
       await pullModelFast(drivePath, model!, p.data);
     } else {
-      await pullModelTag(drivePath, model!.tag);
+      await pullModelTag(drivePath, model!.tag, undefined, undefined, {
+        hostPullScratch: true,
+      });
     }
   } finally {
     await stopAll().catch(() => undefined);

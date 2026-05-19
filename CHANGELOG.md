@@ -10,6 +10,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## Unreleased
 
 ### Added
+- **Direct install staging improvements.** Engine archives dedupe by filename
+  (one `ollama-darwin.tgz` for both Mac targets), download with up to two in
+  flight while extracting, and delete each archive from the stick immediately
+  after extract. Direct model pulls set host `TMPDIR`/`TEMP` for Ollama scratch
+  while keeping `OLLAMA_MODELS` on the USB (`add-model` too).
 - **Windows ARM64 target support.** Surface Pro 11, Surface Laptop 7, and
   Snapdragon X Copilot+ PCs now boot natively from the stick — no Prism
   emulation required. The Windows launcher (`start-windows.bat`) runtime-
