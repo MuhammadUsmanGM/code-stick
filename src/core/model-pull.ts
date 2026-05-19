@@ -1,11 +1,13 @@
 // Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { log } from "../utils/logger.js";
 import { hostTarget } from "../utils/platform.js";
 import { usbPaths } from "../utils/paths.js";
 import { ollamaBinaryRel } from "../catalog/ollama.js";
+import { getNumCtxForTag } from "../catalog/models.js";
 import {
   checkPortFree, waitForOllama, registerProcess, killProcess,
 } from "./process-manager.js";
@@ -86,6 +88,7 @@ export async function pullModelTag(
   drivePath: string,
   tag: string,
   dataDirOverride?: string,
+  numCtxOverride?: number,
 ): Promise<void> {
   const dataDir = dataDirOverride ?? usbPaths(drivePath).data;
   try {
@@ -93,6 +96,17 @@ export async function pullModelTag(
       log.info(`Running ollama pull ${tag} (this can take a while)...`);
       await runOllama(bin, env, ["pull", tag]);
       log.success(`Model ${tag} stored`);
+
+      // Bake the per-model num_ctx into the tag in place. Ollama's server
+      // default is 2048 tokens, which is smaller than opencode's system
+      // prompt + tool definitions alone (~3–4k tokens); without this the
+      // model receives a truncated prompt and hallucinates tool calls.
+      // `ollama create <same-tag> -f Modelfile` overwrites the manifest in
+      // place — the weight blob is shared, no re-download, no namespace
+      // change, opencode keeps referencing `ollama/<tag>` exactly as before.
+      // MUGM-ctx-7a92.
+      const numCtx = numCtxOverride ?? getNumCtxForTag(tag);
+      await bakeNumCtx(bin, env, tag, numCtx);
     }, dataDirOverride);
   } catch (err) {
     // The temp server is killed (tree-kill SIGTERM with grace) before this
@@ -101,6 +115,85 @@ export async function pullModelTag(
     cleanPartialBlobs(dataDir);
     throw err;
   }
+}
+
+/**
+ * Run `ollama create <tag> -f <modelfile>` against the temp server, where the
+ * Modelfile sets `PARAMETER num_ctx <n>` on top of the existing tag. Exported
+ * so upgrade-engine can re-bake the whole manifest in one pass for v0.2.0
+ * sticks. Caller is responsible for spinning up withTempOllama and passing
+ * the shared (bin, env) pair so OLLAMA_MODELS continues to point at the USB.
+ */
+export async function bakeNumCtx(
+  bin: string,
+  env: NodeJS.ProcessEnv,
+  tag: string,
+  numCtx: number,
+): Promise<void> {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "code-stick-modelfile-"));
+  try {
+    const modelfilePath = path.join(tmpDir, "Modelfile");
+    fs.writeFileSync(modelfilePath, `FROM ${tag}\nPARAMETER num_ctx ${numCtx}\n`);
+    log.dim(`Baking num_ctx=${numCtx} into ${tag}...`);
+    await runOllama(bin, env, ["create", tag, "-f", modelfilePath]);
+    log.success(`Baked num_ctx=${numCtx} into ${tag}`);
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Public wrapper for callers that want to re-bake an existing model on a
+ * stick without doing a full pull. Spins up its own withTempOllama session.
+ * Used by `upgrade-engine` to migrate v0.2.0 → v0.2.1 sticks.
+ */
+export async function rebakeModelTag(
+  drivePath: string,
+  tag: string,
+  numCtx: number,
+): Promise<void> {
+  await withTempOllama(drivePath, async (bin, env) => {
+    await bakeNumCtx(bin, env, tag, numCtx);
+  });
+}
+
+/**
+ * Re-bake every model on a stick in a single withTempOllama session.
+ * One server start instead of N — avoids re-spinning the temp server per
+ * model (each start is a 45s health-check window in the worst case).
+ *
+ * Returns a per-model result so the caller can report partial failures
+ * without aborting the whole upgrade.
+ */
+export interface RebakeResult {
+  tag: string;
+  numCtx: number;
+  ok: boolean;
+  error?: string;
+}
+
+export async function rebakeAllModels(
+  drivePath: string,
+  models: ReadonlyArray<{ tag: string; numCtx: number }>,
+): Promise<RebakeResult[]> {
+  if (models.length === 0) return [];
+  const results: RebakeResult[] = [];
+  await withTempOllama(drivePath, async (bin, env) => {
+    for (const m of models) {
+      try {
+        await bakeNumCtx(bin, env, m.tag, m.numCtx);
+        results.push({ tag: m.tag, numCtx: m.numCtx, ok: true });
+      } catch (err) {
+        results.push({
+          tag: m.tag,
+          numCtx: m.numCtx,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  });
+  return results;
 }
 
 export async function removeModelTag(drivePath: string, tag: string): Promise<void> {

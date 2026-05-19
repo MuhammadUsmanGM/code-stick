@@ -26,6 +26,13 @@ interface AddModelOptions {
   target?: string;
   setDefault?: boolean;
   yes?: boolean;
+  /**
+   * Override the baked num_ctx for this pull. Curated tags already carry a
+   * tuned value in MODELS[]; this flag is the escape hatch for raw Ollama
+   * tags whose model family we don't know. Parsed from a string in the CLI
+   * layer, validated to a positive integer here.
+   */
+  numCtx?: string;
 }
 
 /**
@@ -47,6 +54,12 @@ interface ResolvedModel {
    * something to gate against.
    */
   sizeGB: number;
+  /**
+   * Optional explicit num_ctx override for this pull. When set, takes
+   * precedence over the catalog value during the post-pull Modelfile bake.
+   * Only the custom-tag path populates this from `--num-ctx`.
+   */
+  numCtxOverride?: number;
   /** Optional curated metadata (only present when kind === "curated"). */
   meta?: CodingModel;
 }
@@ -100,6 +113,8 @@ export async function addModelCommand(modelId: string | undefined, opts: AddMode
   // preflightFilesystem only really needs sizeGB + name from the metadata.
   // For curated models pass the real entry; for custom synthesize a minimal
   // CodingModel-shaped object so the preflight signature doesn't change.
+  // `numCtx` is required on CodingModel — use the override if given, else
+  // the conservative default (matches the post-pull bake behavior).
   const preflightArg: CodingModel = resolved.meta ?? {
     id: resolved.id,
     name: resolved.name,
@@ -107,6 +122,7 @@ export async function addModelCommand(modelId: string | undefined, opts: AddMode
     size: `${resolved.sizeGB} GB`,
     sizeGB: resolved.sizeGB,
     bestFor: "custom Ollama tag",
+    numCtx: resolved.numCtxOverride ?? 8192,
   };
   preflightFilesystem(drivePath, preflightArg);
 
@@ -121,7 +137,7 @@ export async function addModelCommand(modelId: string | undefined, opts: AddMode
 
   log.info(`Pulling ${resolved.tag} into USB store...`);
   try {
-    await pullModelTag(drivePath, resolved.tag);
+    await pullModelTag(drivePath, resolved.tag, undefined, resolved.numCtxOverride);
   } finally {
     await stopAll().catch(() => undefined);
   }
@@ -242,12 +258,31 @@ async function resolveCustomTag(tag: string, opts: AddModelOptions): Promise<Res
   const id = tagToCustomId(tag);
   const sizeGB = estimateCustomSizeGB(tag);
 
+  // --num-ctx parsing: validate to a positive integer; reject anything else
+  // with a clear error rather than silently falling back to the default. We
+  // intentionally don't clamp to a "sensible" upper bound — power users
+  // pulling 70B models on 128 GB sticks may legitimately want 65536+.
+  let numCtxOverride: number | undefined;
+  if (opts.numCtx !== undefined) {
+    const parsed = Number.parseInt(opts.numCtx, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0 || String(parsed) !== opts.numCtx.trim()) {
+      throw new Error(
+        `Invalid --num-ctx value "${opts.numCtx}". Must be a positive integer (e.g. 16384, 32768).`,
+      );
+    }
+    numCtxOverride = parsed;
+  }
+
   if (!opts.yes) {
     log.blank();
     log.warn(`⚠  Custom Ollama tag — not in code-stick's curated list.`);
     log.dim(`Tag:           ${tag}`);
     log.dim(`Manifest id:   ${id}`);
     log.dim(`Estimated size: ~${sizeGB} GB (rough — based on parameter count in tag)`);
+    log.dim(
+      `Context window: ${numCtxOverride ?? 8192} tokens` +
+        (numCtxOverride === undefined ? " (default — override with --num-ctx)" : " (from --num-ctx)"),
+    );
     log.dim("");
     log.dim("If the tag doesn't exist on ollama.com, the pull will fail and");
     log.dim("nothing will be added to the stick. No way to verify before pulling.");
@@ -264,5 +299,6 @@ async function resolveCustomTag(tag: string, opts: AddModelOptions): Promise<Res
     name: `${tag} (custom)`,
     tag,
     sizeGB,
+    numCtxOverride,
   };
 }

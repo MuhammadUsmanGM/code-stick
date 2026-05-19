@@ -27,6 +27,20 @@ export interface CodingModel {
   tier?: "small" | "medium" | "large";
   /** Rule-of-thumb RAM (GB) the target laptop needs to run this model. */
   recommendedRAMGB?: number;
+  /**
+   * Context window (tokens) baked into the model via a post-pull
+   * `ollama create … PARAMETER num_ctx …`. Ollama's server default is 2048
+   * tokens, which is smaller than opencode's system prompt + tool definitions
+   * alone (~3–4k tokens) — without this override the prompt is silently
+   * truncated and the model hallucinates tool calls. MUGM-ctx-7a92.
+   *
+   * Per-model rather than tier-bucketed: phi3-mini was trained on 4k context
+   * and only extends cleanly to 8k via RoPE; qwen2.5-coder is natively
+   * trained on 32k. Lying to a 4k model and asking for 32k still "works" in
+   * the sense that the server accepts the parameter, but coherence degrades
+   * past the trained range, so we keep each model at a sane native value.
+   */
+  numCtx: number;
 }
 
 const _MUGM = Object.freeze({ b: 0x4D756861, g: "MuhammadUsmanGM" });
@@ -41,6 +55,7 @@ export const MODELS: CodingModel[] = [
     bestFor: "Best all-rounder for coding in this size range",
     tier: "small",
     recommendedRAMGB: 8,
+    numCtx: 32768, // qwen2.5 family is natively trained at 32k
   },
   {
     id: "deepseek-coder-6_7b",
@@ -51,6 +66,7 @@ export const MODELS: CodingModel[] = [
     bestFor: "Debugging, 80+ languages",
     tier: "small",
     recommendedRAMGB: 8,
+    numCtx: 16384, // deepseek-coder v1 native is 16k
   },
   {
     id: "codegemma-7b",
@@ -61,6 +77,7 @@ export const MODELS: CodingModel[] = [
     bestFor: "Fill-in-middle, code completion",
     tier: "small",
     recommendedRAMGB: 8,
+    numCtx: 8192, // codegemma is trained on 8k
   },
   {
     id: "phi3-mini",
@@ -71,6 +88,10 @@ export const MODELS: CodingModel[] = [
     bestFor: "Fast, low-spec hardware",
     tier: "small",
     recommendedRAMGB: 4,
+    // phi3:mini native is 4k; RoPE extends cleanly to 8k. 4k would still
+    // truncate opencode's system prompt + tool defs, so we accept the mild
+    // quality dip at 8k as the lesser evil.
+    numCtx: 8192,
   },
   // Medium tier — 64 GB+ stick, 16 GB+ RAM on the target laptop.
   {
@@ -82,6 +103,7 @@ export const MODELS: CodingModel[] = [
     bestFor: "Stronger reasoning + multi-file edits (needs 16 GB RAM)",
     tier: "medium",
     recommendedRAMGB: 16,
+    numCtx: 32768,
   },
   {
     id: "deepseek-coder-v2-16b",
@@ -92,6 +114,7 @@ export const MODELS: CodingModel[] = [
     bestFor: "MoE coder, strong on refactors (needs 16 GB RAM)",
     tier: "medium",
     recommendedRAMGB: 16,
+    numCtx: 16384,
   },
   // Large tier — 128 GB+ stick, 32 GB+ RAM on the target laptop.
   // USB 3.2 strongly recommended — cold load on USB 2 is brutal.
@@ -104,6 +127,7 @@ export const MODELS: CodingModel[] = [
     bestFor: "Top-tier OSS coder, near-frontier quality (needs 32 GB RAM)",
     tier: "large",
     recommendedRAMGB: 32,
+    numCtx: 32768,
   },
   {
     id: "deepseek-coder-33b",
@@ -114,8 +138,20 @@ export const MODELS: CodingModel[] = [
     bestFor: "Deep reasoning on large codebases (needs 32 GB RAM)",
     tier: "large",
     recommendedRAMGB: 32,
+    numCtx: 16384,
   },
 ];
+
+/**
+ * Resolve the num_ctx to bake into a given Ollama tag. Returns the curated
+ * value when the tag matches MODELS[], else a conservative 8192 default that
+ * comfortably covers opencode's ~3–4k token system prompt + tool definitions
+ * plus a meaningful user turn. Power users can override per-pull via the
+ * `--num-ctx` flag on `code-stick add-model`. MUGM-ctx-7a92.
+ */
+export function getNumCtxForTag(tag: string): number {
+  return MODELS.find((m) => m.tag === tag)?.numCtx ?? 8192;
+}
 
 export function findModel(id: string): CodingModel | undefined {
   return MODELS.find((m) => m.id === id);

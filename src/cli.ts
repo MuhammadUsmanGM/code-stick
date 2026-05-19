@@ -94,6 +94,13 @@ async function main() {
     .option("-t, --target <path>", "Add to this installation directory")
     .option("--set-default", "Make the new model the default for opencode + launchers")
     .option("-y, --yes", "Skip the custom-tag confirmation prompt")
+    .option(
+      "--num-ctx <n>",
+      "Override the baked context window (tokens) for a custom Ollama tag. " +
+        "Curated tags use a tuned per-model value automatically; this flag only " +
+        "applies to raw tags passed via `add-model <tag>`. Default for custom " +
+        "tags: 8192. Examples: 16384, 32768.",
+    )
     .action(async (id, opts) => { await addModelCommand(id, opts); });
 
   program

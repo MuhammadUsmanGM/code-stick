@@ -147,6 +147,7 @@ code-stick install --targets mac,linux    # multi-OS subset (still portable acro
 code-stick add-targets all                # restore full portability later
 code-stick add-model qwen25-coder-7b --set-default
 code-stick add-model qwen2.5-coder:14b --yes      # raw Ollama tag, skip confirm
+code-stick add-model llama3.1:70b --num-ctx 32768 # override context window for a custom tag
 code-stick remove-model phi3-mini
 code-stick uninstall --target E:\ --yes
 ```
@@ -193,6 +194,55 @@ code-stick add-targets all                       # restore full portability
   size × 1.2.
 
 ## Troubleshooting
+
+### Model "hallucinates" or invents tool calls (v0.2.0 only — fixed in v0.2.1)
+
+Symptom: opencode launches fine, the model responds, but it invents file
+paths, makes up function names, or fires malformed tool calls — even with
+strong models like `qwen2.5-coder:32b`.
+
+Cause: Ollama's server default context window is **2048 tokens**, which is
+smaller than opencode's system prompt + 10 tool definitions (~3–4k tokens)
+on its own. The model sees a truncated prompt and confabulates the parts it
+never received. Bigger models hallucinate *more confidently* on truncated
+input — which is why stronger models can feel worse than smaller ones for
+this specific bug.
+
+Fix: v0.2.1 bakes a per-model `num_ctx` into every pulled tag via
+`ollama create … PARAMETER num_ctx …`, sized to each model's native training
+range (qwen2.5-coder → 32k, deepseek-coder → 16k, phi3-mini → 8k, etc.). New
+installs get this automatically.
+
+**Upgrading an existing v0.2.0 stick:**
+
+```bash
+npm i -g code-stick@latest
+code-stick upgrade-engine --target <USB-path>
+```
+
+`upgrade-engine` swaps in the new launchers + opencode config and then
+re-bakes every model already on the stick with the correct context window.
+The model weight blobs are untouched — `ollama create` just rewrites the
+manifest layer (tiny, seconds per model), so a re-bake on a 32 GB stick
+finishes in well under a minute.
+
+Verify after the upgrade:
+
+```bash
+# in a separate terminal while opencode is running
+ollama show <your-tag> --modelfile
+```
+
+The output should contain a `PARAMETER num_ctx <number>` line with a value
+≥ 8192. If it still shows 2048 or no `num_ctx` at all, `upgrade-engine` did
+not re-bake — re-run with `CODE_STICK_DEBUG=1` and open an issue with the
+log.
+
+Power users adding a raw Ollama tag can override per pull:
+
+```bash
+code-stick add-model llama3.1:70b --num-ctx 32768
+```
 
 ### Windows: `npm install` fails with node-gyp / MSB errors
 

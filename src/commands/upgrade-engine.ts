@@ -17,6 +17,9 @@ import { postInstallCleanup } from "../core/cleanup.js";
 import { promptWithEsc } from "../utils/prompt.js";
 import { reportSymlinkCapability } from "../core/preflight.js";
 import { openInstallLog, closeInstallLog } from "../utils/install-log.js";
+import { getNumCtxForTag } from "../catalog/models.js";
+import { rebakeAllModels } from "../core/model-pull.js";
+import { stopAll } from "../core/process-manager.js";
 
 interface UpgradeEngineOptions {
   target?: string;
@@ -136,10 +139,10 @@ export async function upgradeEngineCommand(opts: UpgradeEngineOptions): Promise<
   }
 
   log.blank();
-  log.step(1, 3, `Downloading + staging Ollama + opencode ${opencodeVersion} for ${refreshTargets.length} target(s)...`);
+  log.step(1, 4, `Downloading + staging Ollama + opencode ${opencodeVersion} for ${refreshTargets.length} target(s)...`);
   await stageAndSwapBinaries(drivePath, tempDir, refreshTargets, opencodeVersion);
 
-  log.step(2, 3, "Refreshing launchers + opencode config + providers...");
+  log.step(2, 4, "Refreshing launchers + opencode config + providers...");
   writeOpencodeConfig(drivePath, manifest);
   // Re-prestage providers after every engine swap. Without this, an upgrade
   // from v0.4 → v1.x would leave a stick whose binary is v1.x but whose
@@ -161,7 +164,42 @@ export async function upgradeEngineCommand(opts: UpgradeEngineOptions): Promise<
     log.warn("No default model on this stick — skipping launcher render. Run `code-stick add-model` first.");
   }
 
-  log.step(3, 3, "Updating manifest...");
+  // v0.2.0 → v0.2.1 fix: re-bake every existing model with its catalog
+  // num_ctx so the model receives opencode's full system prompt + tool
+  // definitions instead of the 2048-token default that truncates them.
+  // Idempotent on already-baked v0.2.1+ sticks — `ollama create` rewrites
+  // the manifest in place; if the parameter is already correct, the write
+  // is a no-op from the user's perspective (small blob layer reused).
+  // MUGM-ctx-7a92.
+  log.step(3, 4, "Rebaking model context windows...");
+  if (manifest.models.length === 0) {
+    log.dim("No models on this stick — skipping rebake.");
+  } else {
+    const targets = manifest.models.map((m) => ({
+      tag: m.tag,
+      numCtx: getNumCtxForTag(m.tag),
+    }));
+    try {
+      const results = await rebakeAllModels(drivePath, targets);
+      const failed = results.filter((r) => !r.ok);
+      const ok = results.length - failed.length;
+      log.dim(`Rebake complete: ${ok}/${results.length} model(s) updated.`);
+      for (const f of failed) {
+        log.warn(`Could not rebake ${f.tag}: ${f.error ?? "unknown error"}`);
+      }
+      if (failed.length > 0) {
+        log.warn("Affected model(s) will still launch but may hallucinate from truncated prompts.");
+        log.warn("Try re-running `code-stick upgrade-engine` once the underlying issue is resolved.");
+      }
+    } finally {
+      // The temp server registered with the global process manager;
+      // ensure it's torn down even on partial failure so the next step
+      // doesn't fight a stale serve on port 11434.
+      await stopAll().catch(() => undefined);
+    }
+  }
+
+  log.step(4, 4, "Updating manifest...");
   manifest.ollamaVersions = { host: OLLAMA_VERSIONS.host, linux: OLLAMA_VERSIONS.linux };
   manifest.opencodeVersion = opencodeVersion;
   manifest.updatedAt = new Date().toISOString();
