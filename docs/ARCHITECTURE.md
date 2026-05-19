@@ -7,7 +7,7 @@ How code-stick lays out a USB and what runs at launch time.
 ```
 <USB>/
 ├── code-stick.json          manifest (v2: multi-model)
-├── start-windows.bat        launcher → engine/windows-x64/ollama.exe + opencode
+├── start-windows.bat        launcher → engine/windows-{x64,arm64}/ollama.exe + opencode
 ├── start-mac.command        launcher → engine/darwin-{arm64,x64}/...
 ├── start-linux.sh           launcher → engine/linux-{x64,arm64}/...
 ├── engine/<target>/         ollama binary per target
@@ -16,9 +16,13 @@ How code-stick lays out a USB and what runs at launch time.
 └── config/opencode/         opencode.json (XDG_CONFIG_HOME / APPDATA redirect)
 ```
 
-- `engine/` and `opencode/` hold per-target binaries — five trees on a
-  fully portable stick. Each tree is independent; a stick trimmed with
-  `--targets host` only contains one.
+- `engine/` and `opencode/` hold per-target binaries — six trees on a
+  fully portable stick (windows-x64, windows-arm64, darwin-arm64,
+  darwin-x64, linux-x64, linux-arm64). Each tree is independent; a stick
+  trimmed with `--targets host` only contains one. `start-windows.bat`
+  picks between `engine/windows-x64/` and `engine/windows-arm64/` at
+  launch time based on `PROCESSOR_ARCHITECTURE`, falling back to x64 via
+  Prism emulation on ARM64 hosts if only x64 is staged.
 - `data/` is the Ollama model store. Format is OS-agnostic (sha256 blob
   files + JSON manifests), so the same blobs serve Windows, macOS, and
   Linux launches without re-downloading.

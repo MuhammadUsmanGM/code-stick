@@ -454,7 +454,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   log.success(`Installed code-stick on ${drivePath}`);
   warnIfLosesExecBit(fsInfo);
   log.info("Launch from the USB:");
-  if (selectedTargets.some((t) => t === "windows-x64")) {
+  if (selectedTargets.some((t) => t === "windows-x64" || t === "windows-arm64")) {
     log.dim(`  Windows:  start-windows.bat`);
   }
   if (selectedTargets.some((t) => t === "darwin-arm64" || t === "darwin-x64")) {

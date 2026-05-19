@@ -122,7 +122,7 @@ async function fetchAndExtractOllama(target: Target, destDir: string, tempDir: s
   else await extractTarFile(archivePath, destDir);
   const rel = ollamaBinaryRel(target);
   ensureBinaryAt(destDir, rel, `ollama ${target}`);
-  if (art.type === "zip" && target !== "windows-x64") chmodExecRecursive(destDir);
+  if (art.type === "zip" && target !== "windows-x64" && target !== "windows-arm64") chmodExecRecursive(destDir);
   ensureExecutable(path.join(destDir, rel));
 }
 
@@ -143,7 +143,7 @@ async function fetchAndExtractOpencode(
   else await extractTarFile(archivePath, destDir);
   const rel = opencodeBinaryRel(target);
   ensureBinaryAt(destDir, rel, `opencode ${target}`);
-  if (art.type === "zip" && target !== "windows-x64") chmodExecRecursive(destDir);
+  if (art.type === "zip" && target !== "windows-x64" && target !== "windows-arm64") chmodExecRecursive(destDir);
   ensureExecutable(path.join(destDir, rel));
 }
 

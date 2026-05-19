@@ -30,7 +30,7 @@ describe("parseTargetsFlag", () => {
   it("expands family tokens to all members of that family", () => {
     expect(parseTargetsFlag("mac")).toEqual(["darwin-arm64", "darwin-x64"]);
     expect(parseTargetsFlag("linux")).toEqual(["linux-x64", "linux-arm64"]);
-    expect(parseTargetsFlag("windows")).toEqual(["windows-x64"]);
+    expect(parseTargetsFlag("windows")).toEqual(["windows-x64", "windows-arm64"]);
   });
 
   it("accepts explicit Target IDs (CSV)", () => {
@@ -59,6 +59,7 @@ describe("parseTargetsFlag", () => {
   it("tolerates whitespace around tokens", () => {
     expect(parseTargetsFlag(" windows , linux-x64 ")).toEqual([
       "windows-x64",
+      "windows-arm64",
       "linux-x64",
     ]);
   });
@@ -82,6 +83,25 @@ describe("resolveHostTarget", () => {
   });
 });
 
+describe("windows-arm64 target wiring", () => {
+  it("treats windows-arm64 as part of the 'windows' family", () => {
+    expect(osFamilyOf("windows-arm64")).toBe("windows");
+  });
+
+  it("expands 'windows' family to both x64 and arm64", () => {
+    expect(targetsForFamily("windows")).toEqual(["windows-x64", "windows-arm64"]);
+  });
+
+  it("parses windows-arm64 as a standalone explicit target", () => {
+    expect(parseTargetsFlag("windows-arm64")).toEqual(["windows-arm64"]);
+  });
+
+  it("includes windows-arm64 in ALL_TARGETS", () => {
+    expect(ALL_TARGETS).toContain("windows-arm64");
+    expect(ALL_TARGETS.length).toBe(6);
+  });
+});
+
 describe("isFullPortability", () => {
   it("is true for ALL_TARGETS", () => {
     expect(isFullPortability(ALL_TARGETS)).toBe(true);
@@ -97,8 +117,8 @@ describe("isFullPortability", () => {
   });
 
   it("is false when length matches but contents differ", () => {
-    // Constructed pathological case: 5 entries with one dup, missing one target.
-    const bad = ["windows-x64", "windows-x64", "darwin-arm64", "darwin-x64", "linux-x64"] as never;
+    // Constructed pathological case: 6 entries with one dup, missing one target.
+    const bad = ["windows-x64", "windows-x64", "darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"] as never;
     expect(isFullPortability(bad)).toBe(false);
   });
 });

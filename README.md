@@ -1,7 +1,7 @@
 # code-stick
 
 > **Plug in a USB. Get an offline AI coding agent on any laptop.**
-> One stick. Five targets — **Windows, macOS (Apple Silicon + Intel), Linux (x64 + ARM64)**. Zero install on the host.
+> One stick. Six targets — **Windows (x64 + ARM64), macOS (Apple Silicon + Intel), Linux (x64 + ARM64)**. Zero install on the host.
 
 [![npm](https://img.shields.io/npm/v/code-stick.svg)](https://www.npmjs.com/package/code-stick)
 [![license](https://img.shields.io/npm/l/code-stick.svg)](./LICENSE)
@@ -91,7 +91,10 @@ trimming: [`docs/COMMANDS.md`](docs/COMMANDS.md).
 
 ## Requirements
 
-- **USB free space:** 8+ GB (small models), 16+ GB (medium), 32+ GB (large).
+- **USB free space:** 8+ GB only with `--targets host` (see
+  [`docs/STORAGE.md`](docs/STORAGE.md)); 16+ GB for full portability with
+  small models; 32+ GB (recommended default + Qwen 7B); 64+ GB (medium), 128+
+  GB (large).
 - **USB format:** exFAT or NTFS. FAT32's 4 GB file limit blocks models
   above ~4 GB; the installer detects FAT32 and bails clearly.
 - **Install machine:** Node 20+. Target machines need **nothing**.
@@ -101,9 +104,11 @@ trimming: [`docs/COMMANDS.md`](docs/COMMANDS.md).
 ## Status
 
 v0.2.1 — opencode v1.x, per-model `num_ctx` bake. Full install flow on
-Windows, macOS, Linux (x64 + ARM64) — tested manually per target. Docker-
-based Linux smoke test in CI. No telemetry, no background HTTP. Bug
-reports are local-only and redacted before write.
+Windows (x64 + ARM64), macOS, Linux (x64 + ARM64) — tested manually per
+target. Surface Pro / Snapdragon X laptops boot natively (ARM64) with
+x64-via-Prism fallback if only the x64 target is staged. Docker-based
+Linux smoke test in CI. No telemetry, no background HTTP. Bug reports
+are local-only and redacted before write.
 
 Known gaps: macOS not yet notarized, no Windows/macOS CI runners.
 
@@ -112,6 +117,7 @@ File an issue or open a PR if you hit anything:
 
 ## Documentation
 
+- [`docs/STORAGE.md`](docs/STORAGE.md) — USB sizing, default 6-target download (~5–7 GB binaries), 8 GB + `--targets host`
 - [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — hallucinations, Gatekeeper, MAX_PATH, port conflicts, bug reports
 - [`docs/MODELS.md`](docs/MODELS.md) — full model catalog, BYO Ollama tags, quantization, context windows
 - [`docs/COMMANDS.md`](docs/COMMANDS.md) — every subcommand and flag, Fast vs Direct, `--targets`

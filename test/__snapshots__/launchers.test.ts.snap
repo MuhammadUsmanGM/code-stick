@@ -254,7 +254,7 @@ echo
 exports[`renderLaunchers > matches the windows launcher snapshot 1`] = `
 "@echo off
 REM Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a
-REM code-stick launcher Ã¢â‚¬â€ Windows x64. Generated at install time; do not edit.
+REM code-stick launcher -- Windows (x64 + ARM64). Generated at install time; do not edit.
 REM Fix: OLLAMA_MODELS passed via -EnvironmentVariables hashtable (space-safe).
 setlocal ENABLEDELAYEDEXPANSION
 
@@ -262,8 +262,32 @@ REM Resolve USB root (this script lives at <USB>\\start-windows.bat).
 set "USB_ROOT=%~dp0"
 if "%USB_ROOT:~-1%"=="\\" set "USB_ROOT=%USB_ROOT:~0,-1%"
 
-set "OLLAMA_BIN=%USB_ROOT%\\engine\\windows-x64\\ollama.exe"
-set "OPENCODE_BIN=%USB_ROOT%\\opencode\\windows-x64\\opencode.exe"
+REM Runtime arch detect -- Snapdragon X / Surface Pro report ARM64, all other
+REM Windows hosts report AMD64 (or x86 for legacy 32-bit, treated as x64 fallback).
+REM PROCESSOR_ARCHITEW6432 is set when a 32-bit process runs under WoW64 on a
+REM 64-bit OS; check it too so we don't misidentify under shells like 32-bit
+REM cmd.exe launched by older installers.
+set "CS_ARCH=windows-x64"
+if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" set "CS_ARCH=windows-arm64"
+if /i "%PROCESSOR_ARCHITEW6432%"=="ARM64" set "CS_ARCH=windows-arm64"
+
+set "OLLAMA_BIN=%USB_ROOT%\\engine\\%CS_ARCH%\\ollama.exe"
+set "OPENCODE_BIN=%USB_ROOT%\\opencode\\%CS_ARCH%\\opencode.exe"
+
+REM Fallback: if the arch-specific dir is missing (e.g. installed with
+REM --targets windows-x64 only, then plugged into an ARM64 Surface), try the
+REM other arch before bailing. Windows 11 ARM64 emulates x64 via Prism.
+if not exist "%OLLAMA_BIN%" (
+  if /i "%CS_ARCH%"=="windows-arm64" (
+    if exist "%USB_ROOT%\\engine\\windows-x64\\ollama.exe" (
+      echo [code-stick] No native ARM64 binaries on stick -- falling back to x64 via Prism emulation.
+      set "CS_ARCH=windows-x64"
+      set "OLLAMA_BIN=%USB_ROOT%\\engine\\windows-x64\\ollama.exe"
+      set "OPENCODE_BIN=%USB_ROOT%\\opencode\\windows-x64\\opencode.exe"
+    )
+  )
+)
+
 set "OLLAMA_MODELS=%USB_ROOT%\\data"
 set "OLLAMA_HOST=127.0.0.1:11434"
 REM Pin opencode's config + caches onto the USB so nothing leaks to the host.
@@ -278,23 +302,25 @@ set "XDG_STATE_HOME=%USB_ROOT%\\state"
 REM Skip opencode's autoupdate check + filesystem watcher (USB I/O is slow).
 set "OPENCODE_DISABLE_AUTOUPDATE=1"
 set "OPENCODE_DISABLE_WATCHER=1"
-REM Pin the config file path explicitly Ã¢â‚¬â€ opencode honors $OPENCODE_CONFIG.
+REM Pin the config file path explicitly -- opencode honors $OPENCODE_CONFIG.
 set "OPENCODE_CONFIG=%USB_ROOT%\\config\\opencode\\opencode.json"
 
 if not exist "%OLLAMA_BIN%" (
   echo [code-stick] Missing engine binary: %OLLAMA_BIN%
+  echo [code-stick] Detected host arch: %CS_ARCH% (PROCESSOR_ARCHITECTURE=%PROCESSOR_ARCHITECTURE%)
   echo [code-stick] Re-run: npx code-stick install --target "%USB_ROOT%"
   pause
   exit /b 1
 )
 if not exist "%OPENCODE_BIN%" (
   echo [code-stick] Missing opencode binary: %OPENCODE_BIN%
+  echo [code-stick] Detected host arch: %CS_ARCH% (PROCESSOR_ARCHITECTURE=%PROCESSOR_ARCHITECTURE%)
   echo [code-stick] Re-run: npx code-stick install --target "%USB_ROOT%"
   pause
   exit /b 1
 )
 
-REM Refuse to start if 11434 is already bound Ã¢â‚¬â€ we won't fight another Ollama
+REM Refuse to start if 11434 is already bound -- we won't fight another Ollama
 REM and we don't want to silently fail the wait loop 30s later.
 powershell -NoProfile -Command "try { (New-Object Net.Sockets.TcpClient).Connect('127.0.0.1',11434); exit 0 } catch { exit 1 }" >nul 2>&1
 if %ERRORLEVEL%==0 (
@@ -303,9 +329,9 @@ if %ERRORLEVEL%==0 (
   exit /b 1
 )
 
-echo [code-stick] Starting Ollama from USB...
+echo [code-stick] Starting Ollama from USB (%CS_ARCH%)...
 REM Capture the PID of the ollama process we spawn so we kill only ours on
-REM exit Ã¢â‚¬â€ never touch a pre-existing ollama.exe the user might be running.
+REM exit -- never touch a pre-existing ollama.exe the user might be running.
 REM
 REM We spawn via PowerShell -PassThru and write $p.Id to a temp file. Parsing
 REM stdout via \`for /f\` is fragile: any banner / profile output / AV injection
@@ -328,7 +354,7 @@ if not defined OLLAMA_PID (
 )
 
 REM Wait for Ollama HTTP readiness (up to ~30s). Probe \`/api/version\` rather
-REM than a raw TCP connect Ã¢â‚¬â€ Ollama opens the listening socket *before* the
+REM than a raw TCP connect -- Ollama opens the listening socket *before* the
 REM HTTP handler is wired up, so a TCP-only probe returns ready prematurely
 REM and opencode hits a 503 on its first request, surfacing as a confusing
 REM "model not found". Match start-mac.command and start-linux.sh.

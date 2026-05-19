@@ -6,6 +6,7 @@
 
 export type Target =
   | "windows-x64"
+  | "windows-arm64"
   | "darwin-arm64"
   | "darwin-x64"
   | "linux-x64"
@@ -13,6 +14,7 @@ export type Target =
 
 export const ALL_TARGETS: Target[] = [
   "windows-x64",
+  "windows-arm64",
   "darwin-arm64",
   "darwin-x64",
   "linux-x64",
@@ -23,7 +25,7 @@ export const ALL_TARGETS: Target[] = [
 export type OSFamily = "windows" | "mac" | "linux";
 
 export function osFamilyOf(t: Target): OSFamily {
-  if (t === "windows-x64") return "windows";
+  if (t === "windows-x64" || t === "windows-arm64") return "windows";
   if (t === "darwin-arm64" || t === "darwin-x64") return "mac";
   return "linux";
 }
@@ -55,6 +57,7 @@ export function resolveHostTarget(): Target {
   const platform = process.platform;
   const arch = process.arch;
   if (platform === "win32" && arch === "x64") return "windows-x64";
+  if (platform === "win32" && arch === "arm64") return "windows-arm64";
   if (platform === "darwin" && arch === "arm64") return "darwin-arm64";
   if (platform === "darwin" && arch === "x64") return "darwin-x64";
   if (platform === "linux" && arch === "x64") return "linux-x64";

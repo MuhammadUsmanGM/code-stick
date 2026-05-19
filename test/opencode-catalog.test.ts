@@ -7,8 +7,7 @@ import {
   isPlausibleOpencodeVersion,
   validateOpencodeVersion,
 } from "../src/catalog/opencode.js";
-
-const ALL_TARGETS = ["windows-x64", "darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"] as const;
+import { ALL_TARGETS } from "../src/catalog/targets.js";
 
 describe("opencodeArtifactsFor — pinned version", () => {
   it("returns the same record as the legacy OPENCODE export", () => {

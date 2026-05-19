@@ -7,6 +7,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## Unreleased
+
+### Added
+- **Windows ARM64 target support.** Surface Pro 11, Surface Laptop 7, and
+  Snapdragon X Copilot+ PCs now boot natively from the stick — no Prism
+  emulation required. The Windows launcher (`start-windows.bat`) runtime-
+  detects `PROCESSOR_ARCHITECTURE` and selects the right binary directory
+  (`engine/windows-arm64/` or `engine/windows-x64/`). A fallback path keeps
+  ARM64 hosts working under x64 emulation if only the x64 target was staged.
+  This brings the supported matrix from 5 to 6 targets:
+  windows-x64, **windows-arm64**, darwin-arm64, darwin-x64, linux-x64,
+  linux-arm64. Ollama pinned at v0.21.2 for both Windows variants;
+  opencode pinned at v1.15.4 with verified SHA256.
+
 ## 0.2.1
 
 ### Fixed

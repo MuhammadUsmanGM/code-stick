@@ -49,12 +49,14 @@ const OPENCODE_BASE = `https://github.com/sst/opencode/releases/download/${OPENC
 const ASSETS = {
   ollama: [
     `${OLLAMA_BASE}/ollama-windows-amd64.zip`,
+    `${OLLAMA_BASE}/ollama-windows-arm64.zip`,
     `${OLLAMA_BASE}/ollama-darwin.zip`,
     `${OLLAMA_BASE}/ollama-linux-amd64.tgz`,
     `${OLLAMA_BASE}/ollama-linux-arm64.tgz`,
   ],
   opencode: [
     `${OPENCODE_BASE}/opencode-windows-x64.zip`,
+    `${OPENCODE_BASE}/opencode-windows-arm64.zip`,
     `${OPENCODE_BASE}/opencode-darwin-arm64.zip`,
     `${OPENCODE_BASE}/opencode-darwin-x64.zip`,
     `${OPENCODE_BASE}/opencode-linux-x64.zip`,

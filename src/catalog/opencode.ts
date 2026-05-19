@@ -30,19 +30,21 @@ export const OPENCODE_VERSION = "v1.15.4";
 const BASE = (v: string) => `https://github.com/sst/opencode/releases/download/${v}`;
 
 const FILENAMES: Record<Target, string> = {
-  "windows-x64": "opencode-windows-x64.zip",
-  "darwin-arm64": "opencode-darwin-arm64.zip",
-  "darwin-x64":   "opencode-darwin-x64.zip",
-  "linux-x64":    "opencode-linux-x64.tar.gz",
-  "linux-arm64":  "opencode-linux-arm64.tar.gz",
+  "windows-x64":   "opencode-windows-x64.zip",
+  "windows-arm64": "opencode-windows-arm64.zip",
+  "darwin-arm64":  "opencode-darwin-arm64.zip",
+  "darwin-x64":    "opencode-darwin-x64.zip",
+  "linux-x64":     "opencode-linux-x64.tar.gz",
+  "linux-arm64":   "opencode-linux-arm64.tar.gz",
 };
 
 const TYPES: Record<Target, "zip" | "tgz"> = {
-  "windows-x64": "zip",
-  "darwin-arm64": "zip",
-  "darwin-x64":   "zip",
-  "linux-x64":    "tgz",
-  "linux-arm64":  "tgz",
+  "windows-x64":   "zip",
+  "windows-arm64": "zip",
+  "darwin-arm64":  "zip",
+  "darwin-x64":    "zip",
+  "linux-x64":     "tgz",
+  "linux-arm64":   "tgz",
 };
 
 /** SHAs pinned for OPENCODE_VERSION. The catalog-drift script
@@ -52,11 +54,12 @@ const TYPES: Record<Target, "zip" | "tgz"> = {
  *  Computed against sst/opencode v1.15.4 release assets — verified by
  *  downloading and hashing each archive locally before pinning. */
 const PINNED_SHA: Record<Target, string> = {
-  "windows-x64":  "bd14f5aca2263a10fc793aa6a576b72aa409b737b421284a8ec75e29f328e531",
-  "darwin-arm64": "20fb7ae9a6b9876832850b7899304c38261ac53761cb77a2052be49b02fd27e6",
-  "darwin-x64":   "a2ac8745949960467299889435a03d0de1719f2b431d46431d4a5e106bb5c8da",
-  "linux-x64":    "f0734928d5df360777f51f807df18b28c1d0c006f806ad0bd35a2420fabd0835",
-  "linux-arm64":  "978f070e280c36ea6fd9a03d64f813028dbc2434077ad5cb6aecf37423e156d7",
+  "windows-x64":   "bd14f5aca2263a10fc793aa6a576b72aa409b737b421284a8ec75e29f328e531",
+  "windows-arm64": "4a20a26953240cfa3dbb339aadf308a855dd88ca83c598f4b2387959379d320d",
+  "darwin-arm64":  "20fb7ae9a6b9876832850b7899304c38261ac53761cb77a2052be49b02fd27e6",
+  "darwin-x64":    "a2ac8745949960467299889435a03d0de1719f2b431d46431d4a5e106bb5c8da",
+  "linux-x64":     "f0734928d5df360777f51f807df18b28c1d0c006f806ad0bd35a2420fabd0835",
+  "linux-arm64":   "978f070e280c36ea6fd9a03d64f813028dbc2434077ad5cb6aecf37423e156d7",
 };
 
 /** Build the artifact record for a given opencode version. If `version` matches
@@ -70,7 +73,7 @@ const PINNED_SHA: Record<Target, string> = {
 export function opencodeArtifactsFor(version: string): Record<Target, OpencodeArtifact> {
   const pinned = version === OPENCODE_VERSION;
   const base = BASE(version);
-  const targets: Target[] = ["windows-x64", "darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"];
+  const targets: Target[] = ["windows-x64", "windows-arm64", "darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"];
   const out = {} as Record<Target, OpencodeArtifact>;
   for (const t of targets) {
     out[t] = {
@@ -110,7 +113,7 @@ export function validateOpencodeVersion(v: string): string {
 
 /** Relative path of the opencode binary INSIDE the extracted archive. */
 export function opencodeBinaryRel(target: Target): string {
-  return target === "windows-x64" ? "opencode.exe" : "opencode";
+  return (target === "windows-x64" || target === "windows-arm64") ? "opencode.exe" : "opencode";
 }
 
 const __mugmOrigin = () => "MuhammadUsmanGM|MUGM-d3c1"; // authorship marker

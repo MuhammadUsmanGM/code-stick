@@ -51,23 +51,32 @@ auto-skipped (no perf gain, doubles disk use).
 
 ## Trimming the stick with `--targets`
 
+USB size planning (especially **8 GB sticks** and the ~4–5 GB cost of all
+six Ollama binaries): [`STORAGE.md`](STORAGE.md).
+
 **The default is fully portable.** `code-stick install` with no
-`--targets` flag stages binaries for all 5 OS/arch combinations so the
+`--targets` flag stages binaries for all 6 OS/arch combinations so the
 same stick boots anywhere. That's the whole point of the product.
 
 `--targets` is a power-user escape hatch for one specific use case:
 *"I only want this on my own machine — I'll never plug this stick into
-another OS."* It saves ~3–4 GB of disk and ~5 minutes of download. In
-exchange, the stick will only boot on the OSes you list.
+another OS."* It saves ~5–7 GB of disk and ~10 minutes of download (the
+Windows + Linux x64 engine bundles each ship ~2 GB of CUDA/ROCm libs).
+In exchange, the stick will only boot on the OSes you list.
 
 Accepted tokens (comma-separated):
 
-| Token                                                                  | Stages                                  |
-| ---------------------------------------------------------------------- | --------------------------------------- |
-| `all` (default)                                                        | all 5 targets — fully portable          |
-| `host`                                                                 | just the OS+arch you're installing from |
-| `windows` / `mac` / `linux`                                            | every arch in that OS family            |
-| `windows-x64`, `darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64`| one specific target                     |
+| Token                                                                                       | Stages                                  |
+| ------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `all` (default)                                                                             | all 6 targets — fully portable          |
+| `host`                                                                                      | just the OS+arch you're installing from |
+| `windows` / `mac` / `linux`                                                                 | every arch in that OS family            |
+| `windows-x64`, `windows-arm64`, `darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64`    | one specific target                     |
+
+The `windows` family token expands to both `windows-x64` and `windows-arm64`
+so a single stick boots on commodity Windows hardware *and* Surface Pro /
+Snapdragon X Copilot+ PCs. The Windows launcher (`start-windows.bat`)
+detects `PROCESSOR_ARCHITECTURE` at runtime and picks the right binary.
 
 Any value other than `all` prints a loud warning and asks for confirmation
 (unless `--yes` is set). The chosen subset is persisted in

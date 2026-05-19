@@ -23,7 +23,7 @@ export function isLinux(): boolean { return os.platform() === "linux"; }
 export function hostTarget(): Target {
   const plat = getPlatform();
   const arch = os.arch();
-  if (plat === "windows") return "windows-x64";
+  if (plat === "windows") return (arch === "arm64" || arch === "aarch64") ? "windows-arm64" : "windows-x64";
   if (plat === "mac") return arch === "x64" ? "darwin-x64" : "darwin-arm64";
   // linux
   return arch === "arm64" || arch === "aarch64" ? "linux-arm64" : "linux-x64";

@@ -31,6 +31,12 @@ export const OLLAMA: Record<Target, OllamaArtifact> = {
     type: "zip",
     sha256: "624caabca19a27168dd2b165ac538a0c6f2c6bcc94098439944fa351ff7b11e2",
   },
+  "windows-arm64": {
+    url: `${BASE_HOST}/ollama-windows-arm64.zip`,
+    filename: "ollama-windows-arm64.zip",
+    type: "zip",
+    sha256: "f248475a81a7dcd841a32e1f6c06c83310c893c49c4bdf7da8c10f3eef27231a",
+  },
   "darwin-arm64": {
     // CLI binary tarball (Ollama-darwin.zip is the GUI app).
     url: `${BASE_HOST}/ollama-darwin.tgz`,
@@ -60,7 +66,7 @@ export const OLLAMA: Record<Target, OllamaArtifact> = {
 
 /** Path of the ollama executable INSIDE the extracted archive (relative). */
 export function ollamaBinaryRel(target: Target): string {
-  if (target === "windows-x64") return "ollama.exe";
+  if (target === "windows-x64" || target === "windows-arm64") return "ollama.exe";
   if (target === "linux-x64" || target === "linux-arm64") return "bin/ollama";
   return "ollama";
 }
