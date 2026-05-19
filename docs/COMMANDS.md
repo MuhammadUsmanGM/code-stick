@@ -82,6 +82,40 @@ code-stick add-targets all                       # restore full portability
 `code-stick upgrade-engine` will only refresh the targets actually present
 on the stick — it never silently grows the set.
 
+## Per-command flags worth knowing
+
+Every subcommand accepts `-t, --target <path>` to skip the USB picker. The
+flags below are the non-obvious ones — full options surface via
+`code-stick <subcommand> --help`.
+
+### `doctor`
+
+- `--no-probe` — skip the live `ollama serve` / `opencode --version`
+  probes and run static checks only. Useful for offline diagnosis or when
+  port 11434 is already in use by something you don't want to touch.
+
+### `remove-model [id]`
+
+- `--force` — allow removing the last installed model, or the current
+  default model. Without `--force`, code-stick refuses to leave the stick
+  in a broken state. The stick will be unusable until you `add-model`
+  something new.
+
+### `uninstall`
+
+- `--force` — proceed even if no `code-stick.json` manifest is detected
+  at the target. Use this only when a previous install crashed mid-write
+  and left the stick in a partial state.
+
+### `add-model [id-or-tag]`
+
+- `--set-default` — make the newly pulled model the default the launcher
+  and opencode will use.
+- `--num-ctx <n>` — override the baked context window (tokens) for a
+  custom Ollama tag. Curated tags use a tuned per-model value
+  automatically; this flag only applies to raw tags passed via
+  `add-model <tag>`. Default for custom tags: 8192.
+
 ## opencode version pinning
 
 `install` and `upgrade-engine` accept `--opencode-version <ver>` to swap
@@ -92,3 +126,25 @@ and require `CODE_STICK_ALLOW_UNVERIFIED=1` to download.
 code-stick install --opencode-version v0.4.20
 CODE_STICK_ALLOW_UNVERIFIED=1 code-stick upgrade-engine --opencode-version v0.4.20
 ```
+
+## Environment variables
+
+| Variable                       | Effect                                                                                       |
+| ------------------------------ | -------------------------------------------------------------------------------------------- |
+| `CODE_STICK_DEBUG=1`           | Print the full untruncated stack trace on crash; verbose extractor logging during install.   |
+| `CODE_STICK_ALLOW_UNVERIFIED=1`| Allow `--opencode-version <ver>` to download a release whose SHA is not pinned in code-stick.|
+
+Both are off by default — set them only when you need them.
+
+## Where launchers come from
+
+`code-stick install`, `code-stick update`, and `code-stick upgrade-engine`
+all (re-)write `start-windows.bat`, `start-mac.command`, and
+`start-linux.sh` at the USB root. Those launchers live on the stick — you
+do not need `code-stick` installed on the target machine to launch.
+
+`code-stick start` is the host-side equivalent: it runs from the
+**install machine** (where node + the `code-stick` CLI live) and starts
+opencode + Ollama against a connected USB. Useful when you don't want to
+mount-and-double-click for every test cycle during development. See
+[ARCHITECTURE.md](ARCHITECTURE.md) for the runtime details.

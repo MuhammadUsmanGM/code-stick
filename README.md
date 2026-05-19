@@ -73,16 +73,18 @@ windows: [`docs/MODELS.md`](docs/MODELS.md).
 
 ## Commands
 
-| Command                          | Description                                                          |
-| -------------------------------- | -------------------------------------------------------------------- |
-| `code-stick install`             | Set up code-stick on a USB                                           |
-| `code-stick start`               | Start opencode + Ollama from a USB                                   |
-| `code-stick status`              | Show what's installed                                                |
-| `code-stick doctor`              | Live audit (port + Ollama + opencode + model store)                  |
-| `code-stick upgrade-engine`      | Re-download Ollama + opencode without nuking the model store         |
-| `code-stick add-model [id]`      | Pull another model onto the stick                                    |
-| `code-stick remove-model [id]`   | Remove a model from the stick                                        |
-| `code-stick uninstall`           | Wipe code-stick from the stick                                       |
+| Command                            | Description                                                                |
+| ---------------------------------- | -------------------------------------------------------------------------- |
+| `code-stick install`               | Set up code-stick on a USB                                                 |
+| `code-stick start`                 | Start opencode + Ollama from a USB                                         |
+| `code-stick status`                | Show what's installed                                                      |
+| `code-stick doctor`                | Live audit (port + Ollama + opencode + model store)                        |
+| `code-stick update`                | Refresh launcher scripts and manifest timestamp                            |
+| `code-stick upgrade-engine`        | Re-download Ollama + opencode without nuking the model store               |
+| `code-stick add-model [id]`        | Pull another model onto the stick                                          |
+| `code-stick remove-model [id]`     | Remove a model from the stick                                              |
+| `code-stick add-targets [list]`    | Add OS targets to a stick installed with `--targets` (restore portability) |
+| `code-stick uninstall`             | Wipe code-stick from the stick                                             |
 
 Full flag reference, install modes (Fast vs Direct), and `--targets`
 trimming: [`docs/COMMANDS.md`](docs/COMMANDS.md).
