@@ -15,6 +15,7 @@ import {
   parseTargetsFlag,
   type Target,
 } from "../catalog/targets.js";
+import { estimateFastHostTempGB } from "../core/copy.js";
 import { MODELS, findModel, type CodingModel } from "../catalog/models.js";
 import { renderLaunchers } from "../core/launcher-gen.js";
 import { saveManifest, loadManifest, type Manifest } from "../state/manifest.js";
@@ -260,8 +261,11 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     }
 
     if (step === "speed") {
-      // Fast peak temp ~ 2× model size + 1 GB headroom (Ollama copies blobs).
-      const requiredHostGB = Math.ceil(model!.sizeGB * 2 + 1);
+      // Fast peak temp: model stage (~2×) + binaries extracted on host when fully portable.
+      const requiredHostGB = estimateFastHostTempGB(
+        model!.sizeGB,
+        isFullPortability(selectedTargets),
+      );
       const hostFreeGB = getFreeSpaceGB(os.tmpdir());
 
       // Same physical device → Fast doubles disk usage with no copy-perf gain.
@@ -398,11 +402,31 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
   fs.mkdirSync(p.cache, { recursive: true });
   fs.mkdirSync(p.state, { recursive: true });
 
+  let hostStageRoot: string | undefined;
+  if (installMode === "fast") {
+    hostStageRoot = fs.mkdtempSync(path.join(os.tmpdir(), "code-stick-binaries-stage-"));
+    registerCleanup(() => {
+      try { fs.rmSync(hostStageRoot!, { recursive: true, force: true }); } catch { /* ignore */ }
+    });
+  }
+
   const totalSteps = 5;
   log.blank();
   log.step(1, totalSteps, `Staging binaries for ${selectedTargets.length} target(s)...`);
   log.step(2, totalSteps, "Atomic swap into <USB>/engine and <USB>/opencode...");
-  await stageAndSwapBinaries(drivePath, tempDir, selectedTargets, opencodeVersion);
+  await stageAndSwapBinaries(drivePath, tempDir, selectedTargets, opencodeVersion, {
+    extractOnHost: installMode === "fast",
+    hostStageRoot,
+    copyConcurrency: installMode === "fast" ? 4 : 1,
+  });
+  if (hostStageRoot) {
+    try {
+      fs.rmSync(hostStageRoot, { recursive: true, force: true });
+      log.dim("Freed host binary staging temp");
+    } catch (err) {
+      log.dim(`Could not remove host binary staging: ${(err as Error).message}`);
+    }
+  }
 
   log.step(3, totalSteps, `Pulling model ${model!.tag} (${installMode === "fast" ? "stage on host" : "direct to USB"})...`);
   try {
@@ -484,11 +508,11 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
 
 /** Stage Ollama blobs on host SSD then copy to USB. Avoids USB read+write contention. */
 async function pullModelFast(drivePath: string, model: CodingModel, finalData: string): Promise<void> {
-  const requiredStageGB = Math.ceil(model.sizeGB * 2 + 1);
+  const requiredStageGB = estimateFastHostTempGB(model.sizeGB, false);
   const freeNow = getFreeSpaceGB(os.tmpdir());
   if (freeNow !== null && freeNow < requiredStageGB) {
     throw new Error(
-      `Not enough temp space for fast install: need ~${requiredStageGB} GB, ` +
+      `Not enough temp space for fast model staging: need ~${requiredStageGB} GB, ` +
       `only ${freeNow.toFixed(1)} GB free at ${os.tmpdir()}. ` +
       `Free up space and re-run, or use Direct-to-USB.`,
     );
@@ -509,7 +533,9 @@ async function pullModelFast(drivePath: string, model: CodingModel, finalData: s
     fs.mkdirSync(stagedData, { recursive: true });
     log.dim(`Staging blobs at ${stagedData}...`);
     await pullModelTag(drivePath, model.tag, stagedData);
-    await copyDirWithProgress(stagedData, finalData, "Copying model to USB");
+    await copyDirWithProgress(stagedData, finalData, "Copying model to USB", {
+      fileConcurrency: 4,
+    });
   } catch (err) {
     if (isENOSPC(err)) {
       throw new Error(

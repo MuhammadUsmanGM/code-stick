@@ -10,6 +10,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## Unreleased
 
 ### Added
+- **Fast install staging improvements.** Fully portable Fast installs now
+  extract `engine/` and `opencode/` on the host SSD, then copy to the USB
+  (parallel 4-wide) instead of extracting millions of files on the stick.
+  Model copy to USB also uses parallel copy. Host temp budget in the picker
+  includes ~8 GB for full binary staging.
 - **Direct install staging improvements.** Engine archives dedupe by filename
   (one `ollama-darwin.tgz` for both Mac targets), download with up to two in
   flight while extracting, and delete each archive from the stick immediately

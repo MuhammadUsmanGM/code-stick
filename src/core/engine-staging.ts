@@ -6,11 +6,25 @@ import { OPENCODE_VERSION, opencodeArtifactsFor } from "../catalog/opencode.js";
 import { stripQuarantineIfMac } from "./macos.js";
 import { registerCleanup } from "./process-manager.js";
 import { log } from "../utils/logger.js";
+import { copyDirWithProgress } from "./copy.js";
 import {
   bindArchiveDestDirs,
   buildArchiveWorkUnits,
   runArchiveStagingPipeline,
 } from "./archive-staging.js";
+
+export interface StageBinariesOptions {
+  /**
+   * Download/extract engine + opencode on the host, then copy trees to the USB
+   * staging dirs. Avoids millions of small writes during zip/tgz extract on
+   * slow sticks (Fast install).
+   */
+  extractOnHost?: boolean;
+  /** Host temp root; required when extractOnHost is true. */
+  hostStageRoot?: string;
+  /** Parallelism for host → USB copy (see copyDirWithProgress). */
+  copyConcurrency?: number;
+}
 
 /**
  * Download + extract Ollama and opencode for every target into hidden staging
@@ -40,10 +54,16 @@ export async function stageAndSwapBinaries(
   archiveTempDir: string,
   targets: readonly Target[] = ALL_TARGETS,
   opencodeVersion: string = OPENCODE_VERSION,
+  options?: StageBinariesOptions,
 ): Promise<void> {
   if (targets.length === 0) {
     throw new Error("Internal: stageAndSwapBinaries called with empty targets list.");
   }
+  const extractOnHost = options?.extractOnHost === true;
+  if (extractOnHost && !options?.hostStageRoot) {
+    throw new Error("Internal: extractOnHost requires hostStageRoot.");
+  }
+
   const engineStaging = path.join(drivePath, ".engine.new");
   const opencodeStaging = path.join(drivePath, ".opencode.new");
 
@@ -65,15 +85,38 @@ export async function stageAndSwapBinaries(
     try { fs.rmSync(opencodeStaging, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 
+  const hostEngine = extractOnHost ? path.join(options!.hostStageRoot!, ".engine.new") : engineStaging;
+  const hostOpencode = extractOnHost ? path.join(options!.hostStageRoot!, ".opencode.new") : opencodeStaging;
+  if (extractOnHost) {
+    fs.mkdirSync(hostEngine, { recursive: true });
+    fs.mkdirSync(hostOpencode, { recursive: true });
+    registerCleanup(() => {
+      try { fs.rmSync(hostEngine, { recursive: true, force: true }); } catch { /* ignore */ }
+      try { fs.rmSync(hostOpencode, { recursive: true, force: true }); } catch { /* ignore */ }
+    });
+  }
+
   const opencodeArtifacts = opencodeArtifactsFor(opencodeVersion);
   const units = buildArchiveWorkUnits(targets, targets, opencodeArtifacts);
-  bindArchiveDestDirs(units, engineStaging, opencodeStaging, targets, targets);
+  bindArchiveDestDirs(units, hostEngine, hostOpencode, targets, targets);
 
+  const extractWhere = extractOnHost ? "host SSD" : "USB";
   log.info(
-    `Staging ${targets.length} target(s) ` +
+    `Staging ${targets.length} target(s) on ${extractWhere} ` +
     `(${units.length} unique archive${units.length === 1 ? "" : "s"}, pipelined download + extract)...`,
   );
   await runArchiveStagingPipeline(archiveTempDir, units);
+
+  const copyConcurrency = options?.copyConcurrency ?? (extractOnHost ? 4 : 1);
+  if (extractOnHost) {
+    log.info("Copying staged binaries to USB...");
+    await copyDirWithProgress(hostEngine, engineStaging, "Copying engine to USB", {
+      fileConcurrency: copyConcurrency,
+    });
+    await copyDirWithProgress(hostOpencode, opencodeStaging, "Copying opencode to USB", {
+      fileConcurrency: copyConcurrency,
+    });
+  }
 
   // Partial install: graft staged targets into existing live tree so
   // unrelated targets already on the stick survive the swap. Full install:

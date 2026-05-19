@@ -43,7 +43,7 @@ code-stick uninstall --target E:\ --yes
 
 | Mode       | What it does                                       | Needs                                                          | Best when                              |
 | ---------- | -------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------- |
-| **Fast**   | Pull model into host temp, then copy blobs to USB. | ~2× model size of free space in `%TEMP%`/`/tmp` (auto-cleaned) | Slow USB sticks — usually much faster  |
+| **Fast**   | Download archives on host; **extract engine/opencode on host**, copy trees to USB; pull model on host, then copy `data/` to USB. Uses parallel copy (4-wide) host→USB. | ~2× model + ~8 GB when fully portable (binaries on host); less with `--targets host` | Slow USB sticks — usually much faster  |
 | **Direct** | Pull model straight onto the USB (Ollama pull scratch uses host `%TEMP%`; final blobs on USB). | Minimal extra host temp during pull | Tiny host disk; fast USB 3 stick |
 
 **Direct install optimizations (engine staging):** installer archives are deduped

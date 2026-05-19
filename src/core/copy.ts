@@ -32,16 +32,56 @@ function walkTree(src: string, dest: string): WalkResult {
   return { files, totalBytes };
 }
 
+export interface CopyDirOptions {
+  /**
+   * Parallel file copies (host → USB). USB 2 sticks may saturate with 2;
+   * host SSD → USB 3 often benefits from 4. Default 1 (sequential).
+   */
+  fileConcurrency?: number;
+}
+
+function copyOneFile(src: string, dest: string, size: number): number {
+  const longSrc = toLongPath(src);
+  const longDest = toLongPath(dest);
+  try {
+    const st = fs.statSync(longDest);
+    if (st.isFile() && st.size === size) return size;
+  } catch { /* dest missing */ }
+  const stagePath = `${longDest}.partial`;
+  try { fs.unlinkSync(stagePath); } catch { /* ignore */ }
+  fs.copyFileSync(longSrc, stagePath);
+  try {
+    const fd = fs.openSync(stagePath, "r+");
+    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  } catch { /* fsync best-effort */ }
+  fs.renameSync(stagePath, longDest);
+  return size;
+}
+
+function formatEta(remainingSecs: number): string {
+  if (remainingSecs < 60) return `${remainingSecs}s`;
+  if (remainingSecs < 3600) {
+    const mins = Math.floor(remainingSecs / 60);
+    const secs = remainingSecs % 60;
+    return `${mins}m ${secs}s`;
+  }
+  const hrs = Math.floor(remainingSecs / 3600);
+  const mins = Math.floor((remainingSecs % 3600) / 60);
+  return `${hrs}h ${mins}m`;
+}
+
 /** Copy a directory tree with a real progress bar (MB / speed / ETA). */
 export async function copyDirWithProgress(
   src: string,
   dest: string,
   label: string,
+  options?: CopyDirOptions,
 ): Promise<void> {
   fs.mkdirSync(dest, { recursive: true });
   const { files, totalBytes } = walkTree(src, dest);
   if (files.length === 0) return;
 
+  const concurrency = Math.max(1, Math.min(options?.fileConcurrency ?? 1, 8));
   const totalMB = Math.max(1, Math.round(totalBytes / 1e6));
   const bar = createProgress();
 
@@ -53,70 +93,56 @@ export async function copyDirWithProgress(
     eta_display: "calculating...",
   });
 
-  const startTime = Date.now();
   let copiedBytes = 0;
-  let lastTime = startTime;
+  let lastTime = Date.now();
   let lastBytes = 0;
+
+  const bumpProgress = (added: number) => {
+    copiedBytes += added;
+    const now = Date.now();
+    const elapsed = (now - lastTime) / 1000;
+    if (elapsed < 0.3 && copiedBytes < totalBytes) return;
+    const speedVal = (copiedBytes - lastBytes) / Math.max(elapsed, 0.001) / 1e6;
+    lastTime = now;
+    lastBytes = copiedBytes;
+    let eta_display = "calculating...";
+    if (speedVal > 0 && totalBytes > copiedBytes) {
+      eta_display = formatEta(Math.round((totalBytes - copiedBytes) / (speedVal * 1e6)));
+    } else if (copiedBytes === totalBytes) eta_display = "0s";
+    bar.update(Math.round(copiedBytes / 1e6), {
+      speed: speedVal.toFixed(2),
+      current: Math.round(copiedBytes / 1e6),
+      eta_display,
+    });
+  };
 
   try {
     const dirs = new Set<string>();
     for (const f of files) dirs.add(path.dirname(f.dest));
     for (const d of dirs) fs.mkdirSync(toLongPath(d), { recursive: true });
 
-    for (const f of files) {
-      const longSrc = toLongPath(f.src);
-      const longDest = toLongPath(f.dest);
-      // Skip files that already match by size — protects re-runs after a USB
-      // unplug/ENOSPC: anything fully copied last time is preserved.
-      try {
-        const st = fs.statSync(longDest);
-        if (st.isFile() && st.size === f.size) {
-          copiedBytes += f.size;
-          continue;
-        }
-      } catch { /* dest doesn't exist yet — normal first-pass case */ }
-      // Atomic file write: stage as <dest>.partial, fsync, then rename. If
-      // the user unplugs the USB or hits ENOSPC mid-copy, only a .partial
-      // file remains — Ollama never sees a torn blob, and a re-run will
-      // overwrite the partial with a fresh copy.
-      const stagePath = `${longDest}.partial`;
-      try { fs.unlinkSync(stagePath); } catch { /* not present, that's fine */ }
-      fs.copyFileSync(longSrc, stagePath);
-      try {
-        const fd = fs.openSync(stagePath, "r+");
-        try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-      } catch { /* fsync best-effort: FAT/exFAT may not support it */ }
-      fs.renameSync(stagePath, longDest);
-      copiedBytes += f.size;
-
-      const now = Date.now();
-      const elapsed = (now - lastTime) / 1000;
-      if (elapsed >= 0.3 || copiedBytes === totalBytes) {
-        const speedVal = (copiedBytes - lastBytes) / Math.max(elapsed, 0.001) / 1e6;
-        lastTime = now;
-        lastBytes = copiedBytes;
-
-        let eta_display = "calculating...";
-        if (speedVal > 0 && totalBytes > copiedBytes) {
-          const remainingSecs = Math.round((totalBytes - copiedBytes) / (speedVal * 1e6));
-          if (remainingSecs < 60) eta_display = `${remainingSecs}s`;
-          else if (remainingSecs < 3600) {
-            const mins = Math.floor(remainingSecs / 60);
-            const secs = remainingSecs % 60;
-            eta_display = `${mins}m ${secs}s`;
-          } else {
-            const hrs = Math.floor(remainingSecs / 3600);
-            const mins = Math.floor((remainingSecs % 3600) / 60);
-            eta_display = `${hrs}h ${mins}m`;
-          }
-        } else if (copiedBytes === totalBytes) eta_display = "0s";
-
-        bar.update(Math.round(copiedBytes / 1e6), {
-          speed: speedVal.toFixed(2),
-          current: Math.round(copiedBytes / 1e6),
-          eta_display,
-        });
+    if (concurrency === 1) {
+      for (const f of files) {
+        bumpProgress(copyOneFile(f.src, f.dest, f.size));
       }
+    } else {
+      let next = 0;
+      const worker = async () => {
+        for (;;) {
+          const i = next++;
+          if (i >= files.length) return;
+          const f = files[i]!;
+          bumpProgress(copyOneFile(f.src, f.dest, f.size));
+        }
+      };
+      await Promise.all(Array.from({ length: concurrency }, () => worker()));
     }
+    bumpProgress(0);
   } finally { bar.stop(); }
+}
+
+/** Rough peak host temp (GB) for Fast install: model stage + optional full binary stage on host. */
+export function estimateFastHostTempGB(modelSizeGB: number, fullBinaryStageOnHost: boolean): number {
+  const binaryPeak = fullBinaryStageOnHost ? 8 : 2;
+  return Math.ceil(modelSizeGB * 2 + 1 + binaryPeak);
 }
