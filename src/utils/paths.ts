@@ -21,8 +21,9 @@ export function toLongPath(p: string): string {
   if (process.platform !== "win32") return p;
   if (!p) return p;
   if (p.startsWith("\\\\?\\") || p.startsWith("\\\\.\\")) return p;
-  if (!path.isAbsolute(p)) return p;
-  const normalized = path.normalize(p).replace(/\//g, "\\");
+  const winPath = path.win32;
+  if (!winPath.isAbsolute(p)) return p;
+  const normalized = winPath.normalize(p).replace(/\//g, "\\");
   if (normalized.startsWith("\\\\")) {
     // UNC: \\server\share\... → \\?\UNC\server\share\...
     return `\\\\?\\UNC\\${normalized.slice(2)}`;
