@@ -6,10 +6,10 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-
-## Unreleased
+## 0.2.2
 
 ### Added
+
 - **Fast install staging improvements.** Fully portable Fast installs now
   extract `engine/` and `opencode/` on the host SSD, then copy to the USB
   (parallel 4-wide) instead of extracting millions of files on the stick.
@@ -34,6 +34,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## 0.2.1
 
 ### Fixed
+
 - **Context window too small — models hallucinating tool calls and ignoring
   instructions.** Ollama's server default is 2048 tokens, which is smaller
   than opencode's system prompt plus tool definitions alone (~3–4k tokens).
@@ -45,6 +46,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   via `code-stick upgrade-engine`, which rebakes all installed models in place.
 
 ### Added
+
 - **`--num-ctx <n>` on `code-stick add-model`.** Override the baked context
   window when pulling a custom Ollama tag (e.g.
   `code-stick add-model llama3.1:70b --num-ctx 32768`).
@@ -59,10 +61,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (including the hallucination / context-window symptom). README trimmed and
   linked to these guides; command table now lists `update` and `add-targets`.
 
-
 ## 0.2.0
 
 ### Fixed
+
 - **opencode `DecimalError` on Qwen models — resolved by upgrading to v1.15.4.**
   The previous bundled opencode (`v0.4.18`, from the now-archived
   `opencode-ai/opencode` repo) crashed mid-stream parsing Qwen response token
@@ -74,6 +76,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the model store.
 
 ### Changed
+
 - **Bundled opencode bumped `v0.4.18` → `v1.15.4`.** Source repo switched from
   the archived `opencode-ai/opencode` to the actively-maintained `sst/opencode`.
   Linux assets now ship as `.tar.gz` instead of `.zip` (extractor already
@@ -93,15 +96,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   mid-upgrade still launches.
 
 ### Internal
+
 - Doctor's `/api/tags` env-var check now receives the manifest as an
   argument — previously referenced an out-of-scope `manifest` symbol that
   would have thrown at runtime. Pre-existing bug from the v0.1.1 launcher
   fix, surfaced by typecheck during the v1.x catalog edits.
 
-
 ## 0.1.3
 
 ### Fixed
+
 - **`OLLAMA_MODELS` not passed to spawned Ollama on Windows (launcher bug).**
   The previous Windows launcher used `$env:X = Y` before `Start-Process`, which
   fails silently when the USB mount path contains spaces — the string was
@@ -111,7 +115,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   were visible. Fixed by building a full environment hashtable from the current
   process environment and overriding `OLLAMA_MODELS` and `OLLAMA_HOST` inside
   it before calling `Start-Process` (`[System.Environment]::GetEnvironmentVariables()`
-  + explicit key override), making the injection space-safe and robust.
+  - explicit key override), making the injection space-safe and robust.
 
 - **exFAT USB compatibility — `@ai-sdk/openai-compatible` install failure.**
   `npm install --bin-links=false` only suppresses `.bin/` directory symlinks.
@@ -139,6 +143,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## 0.1.2
 
 ### Added
+
 - **Medium + large model tiers in the curated catalog.** 64 GB sticks can now
   pick Qwen2.5-Coder 14B or DeepSeek-Coder-V2 16B; 128 GB sticks can pick
   Qwen2.5-Coder 32B or DeepSeek-Coder 33B. Curated entries gained `tier`
@@ -163,6 +168,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   "bring your own Ollama tag" subsection.
 
 ### Fixed
+
 - **exFAT compatibility for opencode providers.** The installer now uses
   `--bin-links=false` during `npm install` to avoid symlink errors on FAT32
   and exFAT USB sticks.
@@ -179,6 +185,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   cursor in a static list.
 
 ### Internal
+
 - `src/catalog/models.ts`: new helpers `isPlausibleOllamaTag` and
   `tagToCustomId`, plus the optional `tier` / `recommendedRAMGB` fields on
   `CodingModel`.
@@ -196,6 +203,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## 0.1.1
 
 ### Fixed
+
 - **EPERM symlink crash on Windows.** `code-stick install` no longer aborts
   with `EPERM: operation not permitted, symlink ...` when extracting the
   macOS or Linux Ollama tarballs on a Windows host without Developer Mode /
@@ -213,6 +221,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   to skip per-entry stat work that's never useful on Windows.
 
 ### Added
+
 - `code-stick install --targets <list>` flag — power-user escape hatch for
   reduced-portability installs. Tokens: `all` (default, fully portable),
   `host`, OS families (`windows`/`mac`/`linux`), or explicit Target IDs.
@@ -236,6 +245,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Troubleshooting entry covering the symlink fallback.
 
 ### Internal
+
 - `stageAndSwapBinaries(drivePath, tempDir, targets)` now accepts a
   subset; partial runs merge per-target into the live tree via
   `mergeStagedTargets` instead of replacing the whole engine/opencode
@@ -245,6 +255,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   OS families not present in the staged target set.
 
 ### Added
+
 - Cross-OS GitHub Actions matrix CI (`.github/workflows/ci.yml`) — typecheck,
   build, vitest, launcher-snapshot, and pack-shape jobs run on
   ubuntu-latest, macos-latest, windows-latest on every PR.
@@ -271,6 +282,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   reporting templates.
 
 ### Fixed
+
 - `test/usb.test.ts` POSIX-path tests now skip on Windows hosts (path.resolve
   is platform-bound regardless of `process.platform` mock). Surfaced by the
   new CI matrix.
