@@ -103,11 +103,12 @@ code-stick install --targets windows,mac --model phi3-mini
 
 ## Other space gotchas
 
-**Installer model picker vs reality.** During install, the UI reserves about
-**~2.5 GB** for “binaries + headroom” when greying out models. That assumption
-matches a **`--targets host`** install, not the default six-target download.
-If you skip `--targets host` on a small USB, trust this guide — not only the
-picker — when judging fit.
+**Installer model picker.** The UI now reserves a **target-aware** binary
+budget when greying out models — roughly **~1–2 GB** for `--targets host`,
+and **~5–7 GB** for the default six-target install (Windows + Linux x64 each
+ship ~1.6 GB of CUDA/ROCm libs; ARM64 + macOS land smaller). The picker
+prints the exact number for your selection. If you still want to triple-check
+fit on a small USB, use the cheat sheet above.
 
 **Fast install mode** needs extra **temporary** space on the **install
 machine** (~2× model size in `%TEMP%` / `/tmp`). It does not change how much

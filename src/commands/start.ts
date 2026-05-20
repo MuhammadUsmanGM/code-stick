@@ -4,7 +4,7 @@ import path from "node:path";
 import { log } from "../utils/logger.js";
 import { pickDrive, assertDriveReady } from "../core/usb.js";
 import { usbPaths } from "../utils/paths.js";
-import { hostTarget } from "../utils/platform.js";
+import { hostTarget, resolveEngineTarget, makeBinaryProbe } from "../utils/platform.js";
 import { ollamaBinaryRel } from "../catalog/ollama.js";
 import { opencodeBinaryRel } from "../catalog/opencode.js";
 import { loadManifest, defaultModel } from "../state/manifest.js";
@@ -30,19 +30,37 @@ export async function startCommand(opts: StartOptions): Promise<void> {
     process.exit(1);
   }
 
-  const target = hostTarget();
   const p = usbPaths(drivePath);
+  // Match the start-windows.bat runtime fallback: a Windows ARM64 host can
+  // run x64 binaries under Prism, a macOS ARM64 host can run x64 under
+  // Rosetta. If the native target isn't staged but an emulatable fallback
+  // is, use it instead of erroring out. Linux ARM↔x64 has no fast emulation,
+  // so resolveEngineTarget will throw with an actionable add-targets remedy.
+  const native = hostTarget();
+  let target: typeof native;
+  try {
+    target = resolveEngineTarget(
+      manifest.targets,
+      makeBinaryProbe((t) => p.engine(t), ollamaBinaryRel),
+    );
+  } catch (err) {
+    log.error((err as Error).message);
+    process.exit(1);
+  }
+  if (target !== native) {
+    log.warn(`Native target ${native} not staged on this stick — falling back to ${target} (emulated).`);
+  }
   const ollamaBin = path.join(p.engine(target), ollamaBinaryRel(target));
   const opencodeBin = path.join(p.opencode(target), opencodeBinaryRel(target));
 
   if (!fs.existsSync(ollamaBin)) {
-    log.error(`Ollama binary missing for this host (${target}): ${ollamaBin}`);
-    log.info(`Re-run: code-stick install --target "${drivePath}"`);
+    log.error(`Ollama binary missing for resolved target (${target}): ${ollamaBin}`);
+    log.info(`Re-run: code-stick upgrade-engine --target "${drivePath}"`);
     process.exit(1);
   }
   if (!fs.existsSync(opencodeBin)) {
-    log.error(`opencode binary missing for this host (${target}): ${opencodeBin}`);
-    log.info(`Re-run: code-stick install --target "${drivePath}"`);
+    log.error(`opencode binary missing for resolved target (${target}): ${opencodeBin}`);
+    log.info(`Re-run: code-stick upgrade-engine --target "${drivePath}"`);
     process.exit(1);
   }
 
@@ -72,8 +90,8 @@ export async function startCommand(opts: StartOptions): Promise<void> {
   }
   const otherCount = manifest.models.length - 1;
   log.info(`Model: ${def.tag}${otherCount > 0 ? ` (+${otherCount} other on stick)` : ""}`);
-  log.dim("Starting Ollama from USB...");
-  startOllama(drivePath);
+  log.dim(`Starting Ollama from USB (target: ${target})...`);
+  startOllama(drivePath, target);
   const ready = await waitForOllama(45_000);
   if (!ready) {
     log.error("Ollama did not become ready in time.");
@@ -87,7 +105,7 @@ export async function startCommand(opts: StartOptions): Promise<void> {
 
   let exitCode = 0;
   try {
-    exitCode = await runOpencodeForeground(drivePath);
+    exitCode = await runOpencodeForeground(drivePath, target);
   } finally {
     await stopAll();
   }

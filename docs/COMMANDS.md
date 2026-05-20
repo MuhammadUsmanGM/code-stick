@@ -12,7 +12,7 @@ see [ARCHITECTURE.md](ARCHITECTURE.md).
 | `code-stick start`               | Start opencode + Ollama from a USB                                         |
 | `code-stick status`              | Show what's installed                                                      |
 | `code-stick doctor`              | Live audit (port + Ollama + opencode + model store)                        |
-| `code-stick update`              | Refresh launchers + opencode config                                        |
+| `code-stick update`              | Refresh launchers + opencode config + manifest timestamp                   |
 | `code-stick upgrade-engine`      | Re-download Ollama + opencode without nuking the model store               |
 | `code-stick add-model [id]`      | Pull another model onto the stick                                          |
 | `code-stick remove-model [id]`   | Remove a model from the stick                                              |
@@ -26,10 +26,13 @@ Press **Esc** at any interactive prompt to step back.
 ```bash
 code-stick install --target E:\           # skip USB picker
 code-stick install --model phi3-mini      # non-interactive model pick
+code-stick install -y                     # skip every confirmation prompt
 code-stick install --no-cleanup           # keep archives + temp for debugging
 code-stick install --targets host         # only stage binaries for this OS (saves ~3-4 GB, breaks portability)
 code-stick install --targets mac,linux    # multi-OS subset (still portable across listed ones)
+code-stick upgrade-engine -y --no-cleanup # skip prompt, keep archives (debug)
 code-stick add-targets all                # restore full portability later
+code-stick add-targets darwin-arm64 --no-cleanup  # keep archives (debug)
 code-stick add-model qwen25-coder-7b --set-default
 code-stick add-model qwen2.5-coder:14b --yes      # raw Ollama tag, skip confirm
 code-stick add-model llama3.1:70b --num-ctx 32768 # override context window for a custom tag

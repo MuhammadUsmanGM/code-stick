@@ -5,6 +5,7 @@ import path from "node:path";
 import treeKill from "tree-kill";
 import { log } from "../utils/logger.js";
 import { hostTarget } from "../utils/platform.js";
+import type { Target } from "../catalog/targets.js";
 import { usbPaths } from "../utils/paths.js";
 import { ollamaBinaryRel } from "../catalog/ollama.js";
 import { opencodeBinaryRel } from "../catalog/opencode.js";
@@ -134,8 +135,14 @@ export function isPortInUse(port: number, host = "127.0.0.1"): Promise<boolean> 
   });
 }
 
-export function startOllama(drivePath: string): ChildProcess {
-  const target = hostTarget();
+/**
+ * Spawn ollama serve from the USB. `target` overrides the host-native target —
+ * pass the result of resolveEngineTarget() when a stick may be missing the
+ * native binary but ships an emulatable fallback (e.g. windows-arm64 host with
+ * only windows-x64 staged → Prism). Defaults to hostTarget() for backwards
+ * compatibility with callers that don't care.
+ */
+export function startOllama(drivePath: string, target: Target = hostTarget()): ChildProcess {
   const p = usbPaths(drivePath);
   const exe = path.join(p.engine(target), ollamaBinaryRel(target));
 
@@ -175,9 +182,10 @@ export async function waitForOllama(maxWaitMs = 30000): Promise<boolean> {
 }
 
 /** Launch opencode in the foreground, attached to this terminal. Resolves
- *  when opencode exits — caller should then stop Ollama and exit. */
-export function runOpencodeForeground(drivePath: string): Promise<number> {
-  const target = hostTarget();
+ *  when opencode exits — caller should then stop Ollama and exit.
+ *  `target` defaults to the host-native target but accepts an override for
+ *  the same ARM64 → x64 emulation fallback that startOllama supports. */
+export function runOpencodeForeground(drivePath: string, target: Target = hostTarget()): Promise<number> {
   const p = usbPaths(drivePath);
   const exe = path.join(p.opencode(target), opencodeBinaryRel(target));
 

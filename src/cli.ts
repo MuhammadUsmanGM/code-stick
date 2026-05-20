@@ -30,18 +30,18 @@ async function main() {
     .command("install")
     .description("Install code-stick (opencode + Ollama + a coding model) onto a USB drive")
     .option("-t, --target <path>", "Install to this directory (skips USB picker)")
-    .option("-m, --model <id>", "Pick a model non-interactively (qwen25-coder-7b, deepseek-coder-6_7b, codegemma-7b, phi3-mini)")
+    .option("-m, --model <id>", "Pick a model non-interactively. Curated ids: qwen25-coder-7b, qwen25-coder-14b, qwen25-coder-32b, deepseek-coder-6_7b, deepseek-coder-v2-16b, codegemma-7b, phi3-mini. Or add any Ollama tag later with `code-stick add-model <tag>`.")
     .option("-y, --yes", "Skip confirmations where possible")
     .option("--no-cleanup", "Keep installer archives + temp dirs after install (debugging)")
     .option(
       "--targets <list>",
       "Which OS targets to stage. Comma-separated. Tokens: all (default, fully portable), " +
-      "host, windows, mac, linux, or any of windows-x64,darwin-arm64,darwin-x64,linux-x64,linux-arm64. " +
+      "host, windows, mac, linux, or any of windows-x64, windows-arm64, darwin-arm64, darwin-x64, linux-x64, linux-arm64. " +
       "Anything other than 'all' will print a non-portability warning.",
     )
     .option(
       "--opencode-version <ver>",
-      "Override the bundled opencode release (e.g. v0.4.20). Default is the version SHA-pinned in this code-stick build. " +
+      "Override the bundled opencode release (e.g. v1.15.4). Default is the version SHA-pinned in this code-stick build. " +
       "Non-default versions are not SHA-pinned and require CODE_STICK_ALLOW_UNVERIFIED=1.",
     )
     .action(async (opts) => { await installCommand(opts); });
@@ -79,7 +79,7 @@ async function main() {
     .option("--no-cleanup", "Keep installer archives + temp dirs after upgrade (debugging)")
     .option(
       "--opencode-version <ver>",
-      "Swap to this opencode release instead of the bundled default (e.g. v0.4.20). " +
+      "Swap to this opencode release instead of the bundled default (e.g. v1.15.4). " +
       "Non-default versions are not SHA-pinned and require CODE_STICK_ALLOW_UNVERIFIED=1.",
     )
     .action(async (opts) => { await upgradeEngineCommand(opts); });

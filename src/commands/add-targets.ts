@@ -112,6 +112,15 @@ export async function addTargetsCommand(
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
     });
 
+    // Same host-staging pipeline as Fast install / upgrade-engine: extract on
+    // host SSD, bulk-copy to the USB. Avoids hammering the stick with millions
+    // of small writes when filling in missing OS trees. SIGINT-safe via the
+    // registered cleanup callback.
+    const hostStageRoot = fs.mkdtempSync(path.join(os.tmpdir(), "code-stick-add-targets-stage-"));
+    registerCleanup(() => {
+      try { fs.rmSync(hostStageRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+    });
+
     reportSymlinkCapability(drivePath);
 
     log.blank();
@@ -119,7 +128,13 @@ export async function addTargetsCommand(
     // Stage ONLY the missing targets. engine-staging detects this as a partial
     // run and merges the new target subdirs into the live engine/opencode trees
     // without disturbing the targets the user already has.
-    await stageAndSwapBinaries(drivePath, tempDir, missing);
+    await stageAndSwapBinaries(drivePath, tempDir, missing, undefined, {
+      extractOnHost: true,
+      hostStageRoot,
+      copyConcurrency: 4,
+    });
+    try { fs.rmSync(hostStageRoot, { recursive: true, force: true }); }
+    catch (err) { log.dim(`Could not remove host stage dir: ${(err as Error).message}`); }
 
     log.step(2, 3, "Refreshing launchers + opencode config...");
     writeOpencodeConfig(drivePath, manifest);

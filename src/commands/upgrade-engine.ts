@@ -122,6 +122,16 @@ export async function upgradeEngineCommand(opts: UpgradeEngineOptions): Promise<
     try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 
+  // Mirror the Fast-install staging pipeline: extract Ollama + opencode on the
+  // host SSD, then bulk-copy into place on the USB. Without this, upgrade-engine
+  // re-extracted millions of files directly onto the stick — orders of magnitude
+  // slower than a single sequential copy. SIGINT-safe: registerCleanup wipes the
+  // host stage dir even if the user aborts mid-extract.
+  const hostStageRoot = fs.mkdtempSync(path.join(os.tmpdir(), "code-stick-upgrade-stage-"));
+  registerCleanup(() => {
+    try { fs.rmSync(hostStageRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
   reportSymlinkCapability(drivePath);
 
   // v0.4 → v1.x migration: the cached @ai-sdk/openai-compatible node_modules
@@ -140,7 +150,16 @@ export async function upgradeEngineCommand(opts: UpgradeEngineOptions): Promise<
 
   log.blank();
   log.step(1, 4, `Downloading + staging Ollama + opencode ${opencodeVersion} for ${refreshTargets.length} target(s)...`);
-  await stageAndSwapBinaries(drivePath, tempDir, refreshTargets, opencodeVersion);
+  await stageAndSwapBinaries(drivePath, tempDir, refreshTargets, opencodeVersion, {
+    extractOnHost: true,
+    hostStageRoot,
+    copyConcurrency: 4,
+  });
+  // Best-effort free the host stage dir as soon as the swap is done — the
+  // registered cleanup callback covers crash paths; this trims peak host usage
+  // on success.
+  try { fs.rmSync(hostStageRoot, { recursive: true, force: true }); }
+  catch (err) { log.dim(`Could not remove host stage dir: ${(err as Error).message}`); }
 
   log.step(2, 4, "Refreshing launchers + opencode config + providers...");
   writeOpencodeConfig(drivePath, manifest);

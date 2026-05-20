@@ -51,12 +51,21 @@ export async function statusCommand(opts: StatusOptions): Promise<void> {
 
   const p = usbPaths(drivePath);
   log.blank();
-  log.info("Bundled targets:");
-  for (const t of ALL_TARGETS) {
+  // Honor manifest.targets — a stick installed with `--targets host` should
+  // only report the targets it was supposed to stage, not the full ALL_TARGETS
+  // matrix (which would flag five "missing" entries by design). Legacy
+  // manifests without a populated targets array fall back to ALL_TARGETS.
+  const stagedTargets = manifest.targets.length > 0 ? manifest.targets : ALL_TARGETS;
+  log.info(`Bundled targets (${stagedTargets.length} staged):`);
+  for (const t of stagedTargets) {
     const ollama = path.join(p.engine(t), ollamaBinaryRel(t));
     const opencode = path.join(p.opencode(t), opencodeBinaryRel(t));
     const ok = fs.existsSync(ollama) && fs.existsSync(opencode);
     log.dim(`  ${t.padEnd(14)} ${ok ? "✓" : "✗ missing"}`);
+  }
+  const notStaged = ALL_TARGETS.filter((t) => !stagedTargets.includes(t));
+  if (notStaged.length > 0) {
+    log.dim(`  (not staged by design: ${notStaged.join(", ")} — run \`code-stick add-targets\` to add)`);
   }
 
   const health = inspectOllamaData(p.data);

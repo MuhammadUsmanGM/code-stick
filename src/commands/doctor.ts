@@ -73,8 +73,8 @@ export async function doctorCommand(opts: DoctorOptions): Promise<void> {
   if (manifest) {
     checks.push(checkDefaultModel(manifest));
     checks.push(checkOpencodeManifestVersion(manifest));
-    checks.push(...checkBundledBinaries(drivePath));
-    checks.push(checkHostBinary(drivePath));
+    checks.push(...checkBundledBinaries(drivePath, manifest));
+    checks.push(checkHostBinary(drivePath, manifest));
     checks.push(...checkModelStore(drivePath, manifest));
   }
 
@@ -226,10 +226,18 @@ function checkOpencodeManifestVersion(m: NonNullable<ReturnType<typeof loadManif
   return { status: "pass", label: "opencode version", detail: v };
 }
 
-function checkBundledBinaries(drivePath: string): CheckResult[] {
+function checkBundledBinaries(
+  drivePath: string,
+  manifest: NonNullable<ReturnType<typeof loadManifest>>,
+): CheckResult[] {
   const out: CheckResult[] = [];
   const p = usbPaths(drivePath);
-  for (const t of ALL_TARGETS) {
+  // Only check targets the manifest claims are staged. A `--targets host`
+  // stick must not be flagged as failing for the five OS/arch combos it was
+  // never asked to stage. Legacy manifests with no targets[] fall back to
+  // ALL_TARGETS so older sticks still get a complete audit.
+  const stagedTargets = manifest.targets.length > 0 ? manifest.targets : ALL_TARGETS;
+  for (const t of stagedTargets) {
     const ollama = path.join(p.engine(t), ollamaBinaryRel(t));
     const opencode = path.join(p.opencode(t), opencodeBinaryRel(t));
     const missing: string[] = [];
@@ -246,13 +254,39 @@ function checkBundledBinaries(drivePath: string): CheckResult[] {
       out.push({ status: "pass", label: `Binaries [${t}]`, detail: "ollama + opencode present" });
     }
   }
+  // Surface skipped targets as a note (not a check) so the user understands
+  // why doctor's "fail" tally doesn't match a full-portability audit.
+  const notStaged = ALL_TARGETS.filter((t) => !stagedTargets.includes(t));
+  if (notStaged.length > 0) {
+    out.push({
+      status: "pass",
+      label: `Binaries [unstaged]`,
+      detail: `${notStaged.length} target(s) not staged by design: ${notStaged.join(", ")}`,
+    });
+  }
   return out;
 }
 
-function checkHostBinary(drivePath: string): CheckResult {
+function checkHostBinary(
+  drivePath: string,
+  manifest: NonNullable<ReturnType<typeof loadManifest>>,
+): CheckResult {
   const target = hostTarget();
   const p = usbPaths(drivePath);
   const ollama = path.join(p.engine(target), ollamaBinaryRel(target));
+  // Distinguish "binary missing because corruption" from "binary missing
+  // because this OS was never staged" — different remedies. add-targets
+  // fills in missing targets without re-downloading the model store, which
+  // is what the user actually wants on a reduced-portability stick.
+  const stagedTargets = manifest.targets.length > 0 ? manifest.targets : ALL_TARGETS;
+  if (!stagedTargets.includes(target)) {
+    return {
+      status: "fail",
+      label: `Host ollama [${target}]`,
+      detail: `not staged on this stick (only: ${stagedTargets.join(", ")})`,
+      remedy: `Run: code-stick add-targets ${target} --target "${drivePath}"`,
+    };
+  }
   if (!fs.existsSync(ollama)) {
     return {
       status: "fail",

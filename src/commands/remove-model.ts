@@ -62,6 +62,9 @@ export async function removeModelCommand(modelId: string | undefined, opts: Remo
     writeOpencodeConfig(drivePath, manifest);
     renderLaunchers(drivePath, {
       modelTag: manifest.models.find((m) => m.id === manifest.defaultModelId)?.tag ?? manifest.models[0].tag,
+      // Scope to staged targets so reduced-portability sticks don't silently
+      // regrow launchers for unstaged OS families on every remove-model.
+      targets: manifest.targets,
     });
   } else {
     // Stick is now empty. Clear defaultModelId so consumers (start, status,

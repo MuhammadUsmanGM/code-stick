@@ -28,7 +28,10 @@ export async function updateCommand(opts: UpdateOptions): Promise<void> {
   const def = defaultModel(manifest);
   writeOpencodeConfig(drivePath, manifest);
   if (def) {
-    renderLaunchers(drivePath, { modelTag: def.tag });
+    // Scope the launcher set to manifest.targets so a reduced-portability
+    // stick doesn't regenerate launchers for OS families that have no
+    // engine staged. launcher-gen defaults to ALL_TARGETS when omitted.
+    renderLaunchers(drivePath, { modelTag: def.tag, targets: manifest.targets });
   } else {
     log.warn("No default model on this stick — skipping launcher render. Run `code-stick add-model` first.");
   }

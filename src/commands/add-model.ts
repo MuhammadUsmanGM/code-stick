@@ -149,7 +149,12 @@ export async function addModelCommand(modelId: string | undefined, opts: AddMode
   manifest.updatedAt = new Date().toISOString();
 
   writeOpencodeConfig(drivePath, manifest);
-  renderLaunchers(drivePath, { modelTag: manifest.models.find((m) => m.id === manifest.defaultModelId)?.tag ?? resolved.tag });
+  renderLaunchers(drivePath, {
+    modelTag: manifest.models.find((m) => m.id === manifest.defaultModelId)?.tag ?? resolved.tag,
+    // Match the stick's staged target subset — otherwise a `--targets host`
+    // stick would silently regrow launchers for unstaged OS families.
+    targets: manifest.targets,
+  });
   saveManifest(drivePath, manifest);
 
   log.blank();

@@ -40,21 +40,29 @@ export interface CopyDirOptions {
   fileConcurrency?: number;
 }
 
-function copyOneFile(src: string, dest: string, size: number): number {
+async function copyOneFile(src: string, dest: string, size: number): Promise<number> {
   const longSrc = toLongPath(src);
   const longDest = toLongPath(dest);
   try {
-    const st = fs.statSync(longDest);
+    const st = await fs.promises.stat(longDest);
     if (st.isFile() && st.size === size) return size;
   } catch { /* dest missing */ }
   const stagePath = `${longDest}.partial`;
-  try { fs.unlinkSync(stagePath); } catch { /* ignore */ }
-  fs.copyFileSync(longSrc, stagePath);
+  try { await fs.promises.unlink(stagePath); } catch { /* ignore */ }
+  // Async copyFile is the whole point of this refactor: it releases the event
+  // loop while the OS-level read/write pump runs, so a Promise.all worker pool
+  // (below) can have multiple host→USB transfers in flight concurrently. The
+  // old sync path serialized everything no matter how many workers you spun up.
+  await fs.promises.copyFile(longSrc, stagePath);
+  // fsync best-effort. Open + sync + close via the promise API; failures
+  // (FAT32 / read-only mounts) are silent — we already wrote the bytes.
+  let handle: import("node:fs/promises").FileHandle | null = null;
   try {
-    const fd = fs.openSync(stagePath, "r+");
-    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-  } catch { /* fsync best-effort */ }
-  fs.renameSync(stagePath, longDest);
+    handle = await fs.promises.open(stagePath, "r+");
+    await handle.sync();
+  } catch { /* fsync may not be supported on the target FS */ }
+  finally { if (handle) { try { await handle.close(); } catch { /* ignore */ } } }
+  await fs.promises.rename(stagePath, longDest);
   return size;
 }
 
@@ -123,16 +131,21 @@ export async function copyDirWithProgress(
 
     if (concurrency === 1) {
       for (const f of files) {
-        bumpProgress(copyOneFile(f.src, f.dest, f.size));
+        bumpProgress(await copyOneFile(f.src, f.dest, f.size));
       }
     } else {
+      // Work-stealing pool: each worker grabs the next file off the shared
+      // counter, awaits its copy, then loops. The `await` is what makes this
+      // *actually* parallel — the previous sync implementation pinned a single
+      // worker on copyFileSync and the others never got scheduled until it
+      // finished. With async copyFile the OS pumps multiple transfers at once.
       let next = 0;
-      const worker = async () => {
+      const worker = async (): Promise<void> => {
         for (;;) {
           const i = next++;
           if (i >= files.length) return;
           const f = files[i]!;
-          bumpProgress(copyOneFile(f.src, f.dest, f.size));
+          bumpProgress(await copyOneFile(f.src, f.dest, f.size));
         }
       };
       await Promise.all(Array.from({ length: concurrency }, () => worker()));

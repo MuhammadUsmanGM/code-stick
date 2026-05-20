@@ -63,7 +63,33 @@ type InstallMode = "fast" | "slow";
 // upgrade tooling can reason about per-target drift. opencode is uniform.
 const OLLAMA_VERSIONS = { host: "v0.21.2", linux: "v0.13.0" } as const;
 
-const BINARY_FOOTPRINT_GB = 1.5;
+/**
+ * Per-target on-disk footprint after extraction (GB, conservative ceiling).
+ * Windows + Linux x64 ship the heaviest Ollama bundles because they include
+ * full CUDA / ROCm runtime libraries (~1.5 GB each). ARM64 + macOS targets
+ * skip those libs and land much smaller. opencode adds ~0.1–0.2 GB on top per
+ * target. Numbers tracked in docs/STORAGE.md — keep both in sync.
+ */
+const PER_TARGET_FOOTPRINT_GB: Record<Target, number> = {
+  "windows-x64":   1.6,
+  "windows-arm64": 0.5,
+  "darwin-arm64":  0.4,
+  "darwin-x64":    0.5,
+  "linux-x64":     1.6,
+  "linux-arm64":   0.5,
+};
+
+/**
+ * Realistic binary footprint for the selected target subset. Default
+ * --targets all lands ~5–7 GB; --targets host on a typical x64 host is
+ * ~1.5–2 GB. Replaces the old flat BINARY_FOOTPRINT_GB = 1.5 which silently
+ * under-counted and ENOSPC'd users mid-install on small sticks.
+ */
+function estimateBinaryFootprintGB(targets: readonly Target[]): number {
+  let gb = 0;
+  for (const t of targets) gb += PER_TARGET_FOOTPRINT_GB[t];
+  return Math.ceil(gb);
+}
 
 export async function installCommand(opts: InstallOptions): Promise<void> {
   setupShutdownHooks();
@@ -183,12 +209,15 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
 
     if (step === "model") {
       // Stat the USB once so we can grey out models that won't fit. Budget:
-      // model blob + ~1.5 GB binaries + 1 GB scratch headroom (matches the
-      // `space` step further down). We don't bail here — the dedicated space
-      // step still gets the final word once a model is selected.
+      // model blob + target-aware binary footprint + 1 GB scratch headroom
+      // (matches the `space` step further down). We don't bail here — the
+      // dedicated space step still gets the final word once a model is
+      // selected. Per-target footprint matters: a full-portable 6-target
+      // install lands ~5–7 GB of binaries, not 1.5 GB.
+      const binaryFootprintGB = estimateBinaryFootprintGB(selectedTargets);
       const usbFreeGB = getFreeSpaceGB(drivePath);
       const usbBudgetGB = usbFreeGB !== null
-        ? Math.max(0, usbFreeGB - BINARY_FOOTPRINT_GB - 1)
+        ? Math.max(0, usbFreeGB - binaryFootprintGB - 1)
         : null;
 
       if (opts.model) {
@@ -204,7 +233,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
           log.warn(
             `${m.name} (~${m.sizeGB} GB) is larger than the ` +
             `~${usbBudgetGB.toFixed(1)} GB free space on ${drivePath} ` +
-            `(after reserving ~${BINARY_FOOTPRINT_GB + 1} GB for binaries + headroom).`,
+            `(after reserving ~${binaryFootprintGB + 1} GB for binaries + headroom).`,
           );
           log.dim("Free space, pick a smaller model, or pass a bigger USB.");
         }
@@ -236,7 +265,8 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
       if (usbBudgetGB !== null) {
         log.dim(
           `USB free space: ~${usbFreeGB!.toFixed(1)} GB ` +
-          `(usable for the model: ~${usbBudgetGB.toFixed(1)} GB after binaries + headroom)`,
+          `(usable for the model: ~${usbBudgetGB.toFixed(1)} GB after ` +
+          `~${binaryFootprintGB} GB binaries for ${selectedTargets.length} target(s) + 1 GB headroom)`,
         );
       }
 
@@ -325,7 +355,7 @@ export async function installCommand(opts: InstallOptions): Promise<void> {
     }
 
     if (step === "space") {
-      const requiredGB = Math.ceil(model!.sizeGB + BINARY_FOOTPRINT_GB + 1);
+      const requiredGB = Math.ceil(model!.sizeGB + estimateBinaryFootprintGB(selectedTargets) + 1);
       const ok = await checkDiskSpace(drivePath, requiredGB);
       if (!ok) {
         const ans = await promptWithEsc<{ force: boolean }>([

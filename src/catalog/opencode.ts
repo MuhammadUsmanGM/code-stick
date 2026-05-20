@@ -1,8 +1,10 @@
 // Author: Muhammad Usman (MuhammadUsmanGM) | Sig: MUGM-b2e4-7f1a | MUGM-d3c1-ocv2
 // opencode (sst/opencode) standalone binaries. The releases publish per-target
-// archives — we bundle all five so a USB installed from any host can launch on
-// any target machine. Hashes are PENDING until the catalog is finalized; the
-// downloader gates each file on its sha256.
+// archives — we bundle all six (windows-x64, windows-arm64, darwin-arm64,
+// darwin-x64, linux-x64, linux-arm64) so a USB installed from any host can
+// launch on any target machine. SHAs are pinned per target below and verified
+// nightly by scripts/check-catalog-hashes.mjs; the downloader hard-fails on
+// hash mismatch.
 //
 // v1.x note: Linux assets ship as .tar.gz, Windows + macOS as .zip. The release
 // pattern changed between v0.4.x (all-zip) and v1.x — engine-staging.ts already
