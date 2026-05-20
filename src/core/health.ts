@@ -8,12 +8,52 @@ export interface InstallHealth {
   hasBlobs: boolean;
 }
 
+export interface OllamaDataSize {
+  totalBytes: number;
+  manifestsBytes: number;
+  blobsBytes: number;
+}
+
 export function inspectOllamaData(dataDir: string): InstallHealth {
   const manifests = path.join(dataDir, "manifests");
   const blobs = path.join(dataDir, "blobs");
   const hasManifest = hasAnyFile(manifests);
   const hasBlobs = hasAnyFile(blobs);
   return { hasModelData: hasManifest && hasBlobs, hasManifest, hasBlobs };
+}
+
+export async function inspectOllamaDataSizes(dataDir: string): Promise<OllamaDataSize> {
+  const manifests = path.join(dataDir, "manifests");
+  const blobs = path.join(dataDir, "blobs");
+  const [manifestsBytes, blobsBytes] = await Promise.all([
+    directorySizeBytes(manifests),
+    directorySizeBytes(blobs),
+  ]);
+  return { manifestsBytes, blobsBytes, totalBytes: manifestsBytes + blobsBytes };
+}
+
+export async function directorySizeBytes(root: string): Promise<number> {
+  if (!fs.existsSync(root)) return 0;
+  let total = 0;
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(root, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const entry of entries) {
+    const full = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      total += await directorySizeBytes(full);
+    } else if (entry.isFile()) {
+      try {
+        total += (await fs.promises.stat(full)).size;
+      } catch {
+        // ignore unreadable file
+      }
+    }
+  }
+  return total;
 }
 
 function hasAnyFile(root: string): boolean {

@@ -79,6 +79,7 @@ windows: [`docs/MODELS.md`](docs/MODELS.md).
 | `code-stick start`                 | Start opencode + Ollama from a USB                                         |
 | `code-stick status`                | Show what's installed                                                      |
 | `code-stick doctor`                | Live audit (port + Ollama + opencode + model store)                        |
+| `code-stick prune`                 | Run `ollama prune` on the USB model store to reclaim orphaned blobs        |
 | `code-stick update`                | Refresh launcher scripts and manifest timestamp                            |
 | `code-stick upgrade-engine`        | Re-download Ollama + opencode without nuking the model store               |
 | `code-stick add-model [id]`        | Pull another model onto the stick                                          |

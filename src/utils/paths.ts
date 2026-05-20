@@ -47,6 +47,8 @@ export function usbPaths(root: string) {
   return {
     root,
     manifest: path.join(root, "code-stick.json"),
+    engineRoot: path.join(root, "engine"),
+    opencodeRoot: path.join(root, "opencode"),
     engine: (target: Target) => path.join(root, "engine", target),
     opencode: (target: Target) => path.join(root, "opencode", target),
     data: path.join(root, "data"),
@@ -75,7 +77,7 @@ export function safeJoin(parent: string, child: string): string {
   const rel = path.relative(parentResolved, childResolved);
   if (rel.startsWith("..") || path.isAbsolute(rel)) {
     throw new Error(
-      `Refusing to write outside ${parentResolved}: "${child}" resolves to ${childResolved}`
+      `Refusing to write outside ${parentResolved}: "${child}" resolves to ${childResolved}`,
     );
   }
   return childResolved;

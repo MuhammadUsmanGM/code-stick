@@ -8,7 +8,7 @@ import { ALL_TARGETS } from "../catalog/targets.js";
 import { ollamaBinaryRel } from "../catalog/ollama.js";
 import { opencodeBinaryRel } from "../catalog/opencode.js";
 import { loadManifest, defaultModel } from "../state/manifest.js";
-import { inspectOllamaData } from "../core/health.js";
+import { inspectOllamaData, inspectOllamaDataSizes, directorySizeBytes } from "../core/health.js";
 
 interface StatusOptions { target?: string; }
 
@@ -69,8 +69,41 @@ export async function statusCommand(opts: StatusOptions): Promise<void> {
   }
 
   const health = inspectOllamaData(p.data);
+  const storeSizes = await inspectOllamaDataSizes(p.data);
   log.blank();
   log.info("Model store:");
-  log.dim(`  manifests: ${health.hasManifest ? "✓" : "✗"}`);
-  log.dim(`  blobs:     ${health.hasBlobs ? "✓" : "✗"}`);
+  log.dim(`  manifests: ${health.hasManifest ? "✓" : "✗"}${health.hasManifest ? ` (${formatBytes(storeSizes.manifestsBytes)})` : ""}`);
+  log.dim(`  blobs:     ${health.hasBlobs ? "✓" : "✗"}${health.hasBlobs ? ` (${formatBytes(storeSizes.blobsBytes)})` : ""}`);
+  if (storeSizes.totalBytes > 0) {
+    log.dim(`  total:     ${formatBytes(storeSizes.totalBytes)}`);
+  }
+
+  const [engineBytes, opencodeBytes, dataBytes, cacheBytes, stateBytes, configBytes] = await Promise.all([
+    directorySizeBytes(p.engineRoot),
+    directorySizeBytes(p.opencodeRoot),
+    directorySizeBytes(p.data),
+    directorySizeBytes(p.cache),
+    directorySizeBytes(p.state),
+    directorySizeBytes(p.config),
+  ]);
+
+  log.blank();
+  log.info("Disk usage:");
+  for (const [label, dir, bytes] of [
+    ["engine", p.engineRoot, engineBytes],
+    ["opencode", p.opencodeRoot, opencodeBytes],
+    ["data", p.data, dataBytes],
+    ["cache", p.cache, cacheBytes],
+    ["config", p.config, configBytes],
+    ["state", p.state, stateBytes],
+  ] as const) {
+    log.dim(`  ${label.padEnd(10)} ${fs.existsSync(dir) ? formatBytes(bytes) : "missing"}`);
+  }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }

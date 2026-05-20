@@ -11,9 +11,20 @@ import { ALL_TARGETS } from "../catalog/targets.js";
 import { ollamaBinaryRel } from "../catalog/ollama.js";
 import { opencodeBinaryRel } from "../catalog/opencode.js";
 import { loadManifest, defaultModel } from "../state/manifest.js";
-import { hasOllamaTagManifest, inspectOllamaData } from "../core/health.js";
+import {
+  hasOllamaTagManifest,
+  inspectOllamaData,
+  inspectOllamaDataSizes,
+  directorySizeBytes,
+} from "../core/health.js";
 import { classifyFilesystem } from "../core/preflight.js";
-import { isPortInUse, checkPortFree, registerProcess, killProcess, waitForOllama } from "../core/process-manager.js";
+import {
+  isPortInUse,
+  checkPortFree,
+  registerProcess,
+  killProcess,
+  waitForOllama,
+} from "../core/process-manager.js";
 
 interface DoctorOptions {
   target?: string;
@@ -66,6 +77,7 @@ export async function doctorCommand(opts: DoctorOptions): Promise<void> {
 
   checks.push(checkFilesystem(drivePath));
   checks.push(checkFreeSpace(drivePath));
+  checks.push(await checkDiskUsage(drivePath));
 
   const manifest = loadManifest(drivePath);
   checks.push(checkManifest(drivePath, manifest));
@@ -106,7 +118,9 @@ export async function doctorCommand(opts: DoctorOptions): Promise<void> {
     log.warn(`${warned} warning(s), no failures. Stick is usable.`);
     return;
   }
-  log.error(`${failed} failure(s), ${warned} warning(s). Fix the items above before launching.`);
+  log.error(
+    `${failed} failure(s), ${warned} warning(s). Fix the items above before launching.`,
+  );
   process.exitCode = 2;
 }
 
@@ -135,7 +149,8 @@ function checkFilesystem(drivePath: string): CheckResult {
       status: "warn",
       label: "Filesystem",
       detail: `${info.raw} (+x bit lost on Linux/macOS)`,
-      remedy: "On Linux/macOS, launch via `bash start-linux.sh` or `bash start-mac.command`.",
+      remedy:
+        "On Linux/macOS, launch via `bash start-linux.sh` or `bash start-mac.command`.",
     };
   }
   return { status: "pass", label: "Filesystem", detail: info.raw };
@@ -159,10 +174,50 @@ function checkFreeSpace(drivePath: string): CheckResult {
       remedy: "Delete unused files or models from the stick before launching.",
     };
   }
-  return { status: "pass", label: "Free space", detail: `${free.toFixed(1)} GB` };
+  return {
+    status: "pass",
+    label: "Free space",
+    detail: `${free.toFixed(1)} GB`,
+  };
 }
 
-function checkManifest(drivePath: string, m: ReturnType<typeof loadManifest>): CheckResult {
+async function checkDiskUsage(drivePath: string): Promise<CheckResult> {
+  const p = usbPaths(drivePath);
+  const [
+    engineBytes,
+    opencodeBytes,
+    dataBytes,
+    cacheBytes,
+    stateBytes,
+    configBytes,
+  ] = await Promise.all([
+    directorySizeBytes(p.engineRoot),
+    directorySizeBytes(p.opencodeRoot),
+    directorySizeBytes(p.data),
+    directorySizeBytes(p.cache),
+    directorySizeBytes(p.state),
+    directorySizeBytes(p.config),
+  ]);
+  const dataHealth = await inspectOllamaDataSizes(p.data);
+  return {
+    status: "pass",
+    label: "Disk usage",
+    detail: `engine=${formatBytes(engineBytes)} opencode=${formatBytes(opencodeBytes)} data=${formatBytes(dataBytes)} cache=${formatBytes(cacheBytes)} state=${formatBytes(stateBytes)} config=${formatBytes(configBytes)} store=${formatBytes(dataHealth.totalBytes)}`,
+  };
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+function checkManifest(
+  drivePath: string,
+  m: ReturnType<typeof loadManifest>,
+): CheckResult {
   if (!m) {
     return {
       status: "fail",
@@ -171,10 +226,16 @@ function checkManifest(drivePath: string, m: ReturnType<typeof loadManifest>): C
       remedy: `Run: code-stick install --target "${drivePath}"`,
     };
   }
-  return { status: "pass", label: "Manifest", detail: `${m.models.length} model(s), default=${m.defaultModelId || "(none)"}` };
+  return {
+    status: "pass",
+    label: "Manifest",
+    detail: `${m.models.length} model(s), default=${m.defaultModelId || "(none)"}`,
+  };
 }
 
-function checkDefaultModel(m: NonNullable<ReturnType<typeof loadManifest>>): CheckResult {
+function checkDefaultModel(
+  m: NonNullable<ReturnType<typeof loadManifest>>,
+): CheckResult {
   const def = defaultModel(m);
   if (!def) {
     return {
@@ -205,14 +266,17 @@ function checkDefaultModel(m: NonNullable<ReturnType<typeof loadManifest>>): Che
  * whatever model triggers DecimalError. Steering them to upgrade-engine is
  * the right remedy. MUGM-d3c1-ocv2.
  */
-function checkOpencodeManifestVersion(m: NonNullable<ReturnType<typeof loadManifest>>): CheckResult {
+function checkOpencodeManifestVersion(
+  m: NonNullable<ReturnType<typeof loadManifest>>,
+): CheckResult {
   const v = m.opencodeVersion || "";
   if (v.startsWith("v0.4") || v.startsWith("v0.3")) {
     return {
       status: "warn",
       label: "opencode version",
       detail: `${v} — known DecimalError on Qwen models`,
-      remedy: "Run: code-stick upgrade-engine  to swap in v1.15.4 (fixes upstream parser bug).",
+      remedy:
+        "Run: code-stick upgrade-engine  to swap in v1.15.4 (fixes upstream parser bug).",
     };
   }
   if (!v) {
@@ -236,7 +300,8 @@ function checkBundledBinaries(
   // stick must not be flagged as failing for the five OS/arch combos it was
   // never asked to stage. Legacy manifests with no targets[] fall back to
   // ALL_TARGETS so older sticks still get a complete audit.
-  const stagedTargets = manifest.targets.length > 0 ? manifest.targets : ALL_TARGETS;
+  const stagedTargets =
+    manifest.targets.length > 0 ? manifest.targets : ALL_TARGETS;
   for (const t of stagedTargets) {
     const ollama = path.join(p.engine(t), ollamaBinaryRel(t));
     const opencode = path.join(p.opencode(t), opencodeBinaryRel(t));
@@ -251,7 +316,11 @@ function checkBundledBinaries(
         remedy: `Run: code-stick upgrade-engine --target "${drivePath}"`,
       });
     } else {
-      out.push({ status: "pass", label: `Binaries [${t}]`, detail: "ollama + opencode present" });
+      out.push({
+        status: "pass",
+        label: `Binaries [${t}]`,
+        detail: "ollama + opencode present",
+      });
     }
   }
   // Surface skipped targets as a note (not a check) so the user understands
@@ -278,7 +347,8 @@ function checkHostBinary(
   // because this OS was never staged" — different remedies. add-targets
   // fills in missing targets without re-downloading the model store, which
   // is what the user actually wants on a reduced-portability stick.
-  const stagedTargets = manifest.targets.length > 0 ? manifest.targets : ALL_TARGETS;
+  const stagedTargets =
+    manifest.targets.length > 0 ? manifest.targets : ALL_TARGETS;
   if (!stagedTargets.includes(target)) {
     return {
       status: "fail",
@@ -296,7 +366,11 @@ function checkHostBinary(
     };
   }
   if (process.platform === "win32") {
-    return { status: "pass", label: `Host ollama [${target}]`, detail: "present" };
+    return {
+      status: "pass",
+      label: `Host ollama [${target}]`,
+      detail: "present",
+    };
   }
   // POSIX exec-bit check. FAT/exFAT silently lose the bit; a launcher running
   // via `bash` works around it but the doctor should still flag it.
@@ -310,11 +384,20 @@ function checkHostBinary(
         remedy: "Launch via `bash start-linux.sh` or `bash start-mac.command`.",
       };
     }
-  } catch { /* fall through */ }
-  return { status: "pass", label: `Host ollama [${target}]`, detail: "present + executable" };
+  } catch {
+    /* fall through */
+  }
+  return {
+    status: "pass",
+    label: `Host ollama [${target}]`,
+    detail: "present + executable",
+  };
 }
 
-function checkModelStore(drivePath: string, m: NonNullable<ReturnType<typeof loadManifest>>): CheckResult[] {
+function checkModelStore(
+  drivePath: string,
+  m: NonNullable<ReturnType<typeof loadManifest>>,
+): CheckResult[] {
   const out: CheckResult[] = [];
   const p = usbPaths(drivePath);
   const health = inspectOllamaData(p.data);
@@ -327,18 +410,29 @@ function checkModelStore(drivePath: string, m: NonNullable<ReturnType<typeof loa
     });
     return out;
   }
-  out.push({ status: "pass", label: "Ollama store", detail: "manifests + blobs present" });
+  out.push({
+    status: "pass",
+    label: "Ollama store",
+    detail: "manifests + blobs present",
+  });
 
   for (const entry of m.models) {
     const ok = hasOllamaTagManifest(p.data, entry.tag);
-    out.push(ok
-      ? { status: "pass", label: `Model "${entry.tag}"`, detail: "manifest on disk" }
-      : {
-          status: "fail",
-          label: `Model "${entry.tag}"`,
-          detail: "manifest missing — listed in code-stick.json but not on disk",
-          remedy: `Run: code-stick remove-model ${entry.id} --force  then  code-stick add-model ${entry.id}`,
-        });
+    out.push(
+      ok
+        ? {
+            status: "pass",
+            label: `Model "${entry.tag}"`,
+            detail: "manifest on disk",
+          }
+        : {
+            status: "fail",
+            label: `Model "${entry.tag}"`,
+            detail:
+              "manifest missing — listed in code-stick.json but not on disk",
+            remedy: `Run: code-stick remove-model ${entry.id} --force  then  code-stick add-model ${entry.id}`,
+          },
+    );
   }
   return out;
 }
@@ -351,22 +445,31 @@ async function checkPort(): Promise<CheckResult> {
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), 1500);
     let res: Response | null = null;
-    try { res = await fetch("http://127.0.0.1:11434/api/version", { signal: controller.signal }); }
-    finally { clearTimeout(t); }
+    try {
+      res = await fetch("http://127.0.0.1:11434/api/version", {
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(t);
+    }
     if (res && res.ok) {
       return {
         status: "fail",
         label: "Port 11434",
         detail: "another Ollama instance is running",
-        remedy: "Quit the system-tray Ollama (or `pkill ollama` / `taskkill /IM ollama.exe`) and re-run.",
+        remedy:
+          "Quit the system-tray Ollama (or `pkill ollama` / `taskkill /IM ollama.exe`) and re-run.",
       };
     }
-  } catch { /* fall through */ }
+  } catch {
+    /* fall through */
+  }
   return {
     status: "fail",
     label: "Port 11434",
     detail: "in use by another process",
-    remedy: "Find and stop the listener: `lsof -i :11434` (POSIX) or `Get-NetTCPConnection -LocalPort 11434` (Windows).",
+    remedy:
+      "Find and stop the listener: `lsof -i :11434` (POSIX) or `Get-NetTCPConnection -LocalPort 11434` (Windows).",
   };
 }
 
@@ -395,9 +498,12 @@ async function checkOllamaServe(
       remedy: `Run: code-stick upgrade-engine --target "${drivePath}"`,
     };
   }
-  try { await checkPortFree(); } catch (err) {
+  try {
+    await checkPortFree();
+  } catch (err) {
     return {
-      status: "fail", label: "Ollama /api/version",
+      status: "fail",
+      label: "Ollama /api/version",
       detail: (err as Error).message,
       remedy: "Stop whatever is bound to 11434 and re-run doctor.",
     };
@@ -408,7 +514,9 @@ async function checkOllamaServe(
       OLLAMA_MODELS: p.data,
       OLLAMA_HOST: "127.0.0.1:11434",
     },
-    stdio: "ignore", windowsHide: true, detached: false,
+    stdio: "ignore",
+    windowsHide: true,
+    detached: false,
   });
   registerProcess("ollama-doctor", child);
   try {
@@ -431,18 +539,24 @@ async function checkOllamaServe(
     // at the host's default store (~/.ollama/models) instead.
     const tagsRes = await fetch("http://127.0.0.1:11434/api/tags");
     const tagsBody = await tagsRes.json().catch(() => ({ models: [] }));
-    const activeTags = (tagsBody as { models: Array<{ name: string }> }).models.map((m: { name: string }) => m.name);
+    const activeTags = (
+      tagsBody as { models: Array<{ name: string }> }
+    ).models.map((m: { name: string }) => m.name);
 
     const manifestTags = manifest.models.map((m) => m.tag);
-    const seen = manifestTags.filter((t: string) => activeTags.includes(t) || activeTags.includes(t + ":latest"));
-    
+    const seen = manifestTags.filter(
+      (t: string) =>
+        activeTags.includes(t) || activeTags.includes(t + ":latest"),
+    );
+
     let detail = `version ${version}`;
     if (seen.length === 0 && manifestTags.length > 0) {
       return {
         status: "fail",
         label: "Ollama /api/tags",
         detail: "USB model store NOT detected (env variable bug)",
-        remedy: "The server is running but cannot see the models on the USB. Check OLLAMA_MODELS env var.",
+        remedy:
+          "The server is running but cannot see the models on the USB. Check OLLAMA_MODELS env var.",
       };
     }
     detail += ` (found ${seen.length}/${manifestTags.length} models)`;
@@ -470,7 +584,8 @@ async function checkOpencodeVersion(drivePath: string): Promise<CheckResult> {
     };
   }
   return await new Promise<CheckResult>((resolve) => {
-    let stdout = "", stderr = "";
+    let stdout = "",
+      stderr = "";
     const child = spawn(bin, ["--version"], {
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
@@ -485,18 +600,29 @@ async function checkOpencodeVersion(drivePath: string): Promise<CheckResult> {
         OPENCODE_DISABLE_WATCHER: "1",
       },
     });
-    const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* ignore */ } }, 10_000);
-    child.stdout.on("data", (b) => { stdout += b.toString(); });
-    child.stderr.on("data", (b) => { stderr += b.toString(); });
+    const timer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* ignore */
+      }
+    }, 10_000);
+    child.stdout.on("data", (b) => {
+      stdout += b.toString();
+    });
+    child.stderr.on("data", (b) => {
+      stderr += b.toString();
+    });
     child.on("error", (err) => {
       clearTimeout(timer);
       resolve({
         status: "fail",
         label: "opencode --version",
         detail: err.message,
-        remedy: process.platform === "win32"
-          ? `Confirm the binary is the right arch (x64) and not blocked by SmartScreen.`
-          : `chmod +x "${bin}" or remount the USB with exec.`,
+        remedy:
+          process.platform === "win32"
+            ? `Confirm the binary is the right arch (x64) and not blocked by SmartScreen.`
+            : `chmod +x "${bin}" or remount the USB with exec.`,
       });
     });
     child.on("exit", (code) => {
@@ -507,7 +633,8 @@ async function checkOpencodeVersion(drivePath: string): Promise<CheckResult> {
           status: "fail",
           label: "opencode --version",
           detail: `exit ${code}${tail ? `: ${tail.slice(0, 80)}` : ""}`,
-          remedy: "Re-run: code-stick upgrade-engine — the opencode binary may be corrupt.",
+          remedy:
+            "Re-run: code-stick upgrade-engine — the opencode binary may be corrupt.",
         });
         return;
       }

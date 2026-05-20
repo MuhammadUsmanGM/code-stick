@@ -12,6 +12,7 @@ import { doctorCommand } from "./commands/doctor.js";
 import { addModelCommand } from "./commands/add-model.js";
 import { removeModelCommand } from "./commands/remove-model.js";
 import { addTargetsCommand } from "./commands/add-targets.js";
+import { pruneCommand } from "./commands/prune.js";
 import { uninstallCommand } from "./commands/uninstall.js";
 
 declare const PKG_VERSION: string | undefined;
@@ -117,6 +118,13 @@ async function main() {
     .option("-y, --yes", "Skip confirmation")
     .option("--no-cleanup", "Keep installer archives + temp dirs after run (debugging)")
     .action(async (list, opts) => { await addTargetsCommand(list, opts); });
+
+  program
+    .command("prune")
+    .description("Run ollama prune on the USB model store to reclaim orphaned blobs")
+    .option("-t, --target <path>", "Prune this installation directory")
+    .option("-y, --yes", "Skip the confirmation prompt")
+    .action(async (opts) => { await pruneCommand(opts); });
 
   program
     .command("uninstall")

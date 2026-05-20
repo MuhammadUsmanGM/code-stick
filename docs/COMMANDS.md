@@ -12,6 +12,7 @@ see [ARCHITECTURE.md](ARCHITECTURE.md).
 | `code-stick start`               | Start opencode + Ollama from a USB                                         |
 | `code-stick status`              | Show what's installed                                                      |
 | `code-stick doctor`              | Live audit (port + Ollama + opencode + model store)                        |
+| `code-stick prune`               | Run `ollama prune` on the USB model store to reclaim orphaned blobs        |
 | `code-stick update`              | Refresh launchers + opencode config + manifest timestamp                   |
 | `code-stick upgrade-engine`      | Re-download Ollama + opencode without nuking the model store               |
 | `code-stick add-model [id]`      | Pull another model onto the stick                                          |
