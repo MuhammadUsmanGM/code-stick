@@ -6,19 +6,19 @@ see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Subcommands
 
-| Command                          | Description                                                                |
-| -------------------------------- | -------------------------------------------------------------------------- |
-| `code-stick install`             | Set up code-stick on a USB                                                 |
-| `code-stick start`               | Start opencode + Ollama from a USB                                         |
-| `code-stick status`              | Show what's installed                                                      |
-| `code-stick doctor`              | Live audit (port + Ollama + opencode + model store)                        |
-| `code-stick prune`               | Run `ollama prune` on the USB model store to reclaim orphaned blobs        |
-| `code-stick update`              | Refresh launchers + opencode config + manifest timestamp                   |
-| `code-stick upgrade-engine`      | Re-download Ollama + opencode without nuking the model store               |
-| `code-stick add-model [id]`      | Pull another model onto the stick                                          |
-| `code-stick remove-model [id]`   | Remove a model from the stick                                              |
-| `code-stick add-targets [list]`  | Add OS targets to a stick installed with `--targets` (restore portability) |
-| `code-stick uninstall`           | Wipe code-stick from the stick (binaries, models, config, launchers)       |
+| Command                         | Description                                                                |
+| ------------------------------- | -------------------------------------------------------------------------- |
+| `code-stick install`            | Set up code-stick on a USB                                                 |
+| `code-stick start`              | Start opencode + Ollama from a USB                                         |
+| `code-stick status`             | Show what's installed                                                      |
+| `code-stick doctor`             | Live audit (port + Ollama + opencode + model store)                        |
+| `code-stick prune`              | Run `ollama prune` on the USB model store to reclaim orphaned blobs        |
+| `code-stick update`             | Refresh launchers + opencode config + manifest timestamp                   |
+| `code-stick upgrade-engine`     | Re-download Ollama + opencode without nuking the model store               |
+| `code-stick add-model [id]`     | Pull another model onto the stick                                          |
+| `code-stick remove-model [id]`  | Remove a model from the stick                                              |
+| `code-stick add-targets [list]` | Add OS targets to a stick installed with `--targets` (restore portability) |
+| `code-stick uninstall`          | Wipe code-stick from the stick (binaries, models, config, launchers)       |
 
 Press **Esc** at any interactive prompt to step back.
 
@@ -45,10 +45,10 @@ code-stick uninstall --target E:\ --yes
 
 `code-stick install` asks which mode to use after detecting the USB.
 
-| Mode       | What it does                                       | Needs                                                          | Best when                              |
-| ---------- | -------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------- |
-| **Fast**   | Download archives on host; **extract engine/opencode on host**, copy trees to USB; pull model on host, then copy `data/` to USB. Uses parallel copy (4-wide) host→USB. | ~2× model + ~8 GB when fully portable (binaries on host); less with `--targets host` | Slow USB sticks — usually much faster  |
-| **Direct** | Pull model straight onto the USB (Ollama pull scratch uses host `%TEMP%`; final blobs on USB). | Minimal extra host temp during pull | Tiny host disk; fast USB 3 stick |
+| Mode       | What it does                                                                                                                                                           | Needs                                                                                | Best when                             |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------- |
+| **Fast**   | Download archives on host; **extract engine/opencode on host**, copy trees to USB; pull model on host, then copy `data/` to USB. Uses parallel copy (4-wide) host→USB. | ~2× model + ~8 GB when fully portable (binaries on host); less with `--targets host` | Slow USB sticks — usually much faster |
+| **Direct** | Pull model straight onto the USB (Ollama pull scratch uses host `%TEMP%`; final blobs on USB).                                                                         | Minimal extra host temp during pull                                                  | Tiny host disk; fast USB 3 stick      |
 
 **Direct install optimizations (engine staging):** installer archives are deduped
 (e.g. one `ollama-darwin.tgz` for both Mac arches), downloaded with up to two
@@ -69,22 +69,22 @@ six Ollama binaries): [`STORAGE.md`](STORAGE.md).
 same stick boots anywhere. That's the whole point of the product.
 
 `--targets` is a power-user escape hatch for one specific use case:
-*"I only want this on my own machine — I'll never plug this stick into
-another OS."* It saves ~5–7 GB of disk and ~10 minutes of download (the
+_"I only want this on my own machine — I'll never plug this stick into
+another OS."_ It saves ~5–7 GB of disk and ~10 minutes of download (the
 Windows + Linux x64 engine bundles each ship ~2 GB of CUDA/ROCm libs).
 In exchange, the stick will only boot on the OSes you list.
 
 Accepted tokens (comma-separated):
 
-| Token                                                                                       | Stages                                  |
-| ------------------------------------------------------------------------------------------- | --------------------------------------- |
-| `all` (default)                                                                             | all 6 targets — fully portable          |
-| `host`                                                                                      | just the OS+arch you're installing from |
-| `windows` / `mac` / `linux`                                                                 | every arch in that OS family            |
-| `windows-x64`, `windows-arm64`, `darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64`    | one specific target                     |
+| Token                                                                                    | Stages                                  |
+| ---------------------------------------------------------------------------------------- | --------------------------------------- |
+| `all` (default)                                                                          | all 6 targets — fully portable          |
+| `host`                                                                                   | just the OS+arch you're installing from |
+| `windows` / `mac` / `linux`                                                              | every arch in that OS family            |
+| `windows-x64`, `windows-arm64`, `darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64` | one specific target                     |
 
 The `windows` family token expands to both `windows-x64` and `windows-arm64`
-so a single stick boots on commodity Windows hardware *and* Surface Pro /
+so a single stick boots on commodity Windows hardware _and_ Surface Pro /
 Snapdragon X Copilot+ PCs. The Windows launcher (`start-windows.bat`)
 detects `PROCESSOR_ARCHITECTURE` at runtime and picks the right binary.
 
@@ -109,6 +109,7 @@ flags below are the non-obvious ones — full options surface via
 
 ### `doctor`
 
+- `--status` — show an on-disk storage breakdown only; no health probes.
 - `--no-probe` — skip the live `ollama serve` / `opencode --version`
   probes and run static checks only. Useful for offline diagnosis or when
   port 11434 is already in use by something you don't want to touch.
@@ -148,10 +149,10 @@ CODE_STICK_ALLOW_UNVERIFIED=1 code-stick upgrade-engine --opencode-version v0.4.
 
 ## Environment variables
 
-| Variable                       | Effect                                                                                       |
-| ------------------------------ | -------------------------------------------------------------------------------------------- |
-| `CODE_STICK_DEBUG=1`           | Print the full untruncated stack trace on crash; verbose extractor logging during install.   |
-| `CODE_STICK_ALLOW_UNVERIFIED=1`| Allow `--opencode-version <ver>` to download a release whose SHA is not pinned in code-stick.|
+| Variable                        | Effect                                                                                        |
+| ------------------------------- | --------------------------------------------------------------------------------------------- |
+| `CODE_STICK_DEBUG=1`            | Print the full untruncated stack trace on crash; verbose extractor logging during install.    |
+| `CODE_STICK_ALLOW_UNVERIFIED=1` | Allow `--opencode-version <ver>` to download a release whose SHA is not pinned in code-stick. |
 
 Both are off by default — set them only when you need them.
 

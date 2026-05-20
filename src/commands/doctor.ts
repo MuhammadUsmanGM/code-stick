@@ -28,6 +28,8 @@ import {
 
 interface DoctorOptions {
   target?: string;
+  /** Show on-disk storage usage only, without running probes. */
+  status?: boolean;
   /** Skip the live ollama spawn — useful in CI or on hosts without permission
    *  to bind 11434. Static checks still run. */
   noProbe?: boolean;
@@ -72,6 +74,11 @@ export async function doctorCommand(opts: DoctorOptions): Promise<void> {
   const drivePath = await pickDrive(opts.target);
   log.info(`Drive: ${drivePath}`);
   log.blank();
+
+  if (opts.status) {
+    await showStorageStatus(drivePath);
+    return;
+  }
 
   const checks: CheckResult[] = [];
 
@@ -204,6 +211,51 @@ async function checkDiskUsage(drivePath: string): Promise<CheckResult> {
     label: "Disk usage",
     detail: `engine=${formatBytes(engineBytes)} opencode=${formatBytes(opencodeBytes)} data=${formatBytes(dataBytes)} cache=${formatBytes(cacheBytes)} state=${formatBytes(stateBytes)} config=${formatBytes(configBytes)} store=${formatBytes(dataHealth.totalBytes)}`,
   };
+}
+
+async function showStorageStatus(drivePath: string): Promise<void> {
+  const p = usbPaths(drivePath);
+  const [
+    engineBytes,
+    opencodeBytes,
+    dataBytes,
+    cacheBytes,
+    stateBytes,
+    configBytes,
+  ] = await Promise.all([
+    directorySizeBytes(p.engineRoot),
+    directorySizeBytes(p.opencodeRoot),
+    directorySizeBytes(p.data),
+    directorySizeBytes(p.cache),
+    directorySizeBytes(p.state),
+    directorySizeBytes(p.config),
+  ]);
+  const dataHealth = await inspectOllamaDataSizes(p.data);
+  const totalBytes =
+    engineBytes +
+    opencodeBytes +
+    dataBytes +
+    cacheBytes +
+    stateBytes +
+    configBytes;
+
+  log.info("Storage breakdown");
+  console.log(`  engine:   ${formatBytes(engineBytes)}`);
+  console.log(`  opencode: ${formatBytes(opencodeBytes)}`);
+  console.log(
+    `  data:     ${formatBytes(dataBytes)} (${formatBytes(dataHealth.blobsBytes)} blobs + ${formatBytes(dataHealth.manifestsBytes)} manifests)`,
+  );
+  console.log(`  cache:    ${formatBytes(cacheBytes)}`);
+  console.log(`  state:    ${formatBytes(stateBytes)}`);
+  console.log(`  config:   ${formatBytes(configBytes)}`);
+  log.blank();
+  log.info(`Total used: ${formatBytes(totalBytes)}`);
+  const free = getFreeSpaceGB(drivePath);
+  if (free === null) {
+    log.warn("Free space: could not determine");
+  } else {
+    log.info(`Free space: ${free.toFixed(1)} GB`);
+  }
 }
 
 function formatBytes(bytes: number): string {
