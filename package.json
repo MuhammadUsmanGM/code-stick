@@ -23,7 +23,8 @@
     "hashes": "node scripts/compute-hashes.mjs",
     "hashes:check": "node scripts/check-catalog-hashes.mjs",
     "hashes:bump": "node scripts/check-catalog-hashes.mjs --write",
-    "prepublishOnly": "npm run build && node scripts/verify-publish.mjs"
+    "verify-publish": "node scripts/verify-publish.mjs",
+    "prepublishOnly": "npm run build && npm run verify-publish"
   },
   "engines": {
     "node": ">=20"
