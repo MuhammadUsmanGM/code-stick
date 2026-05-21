@@ -6,6 +6,24 @@ All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.2.3
+
+### Fixed
+
+- **Wrong SHA256 for `ollama-windows-arm64.zip` in the 0.2.2 catalog.** The
+  hash committed alongside the Windows ARM64 target in 0.2.2 did not match the
+  digest GitHub publishes for `ollama-windows-arm64.zip` at the pinned
+  `v0.21.2` release. Every install touching an ARM64-staged stick aborted at
+  the verify step with
+  `Downloaded file hash mismatch for ollama windows-arm64 — corrupt download
+  or stale catalog hash`, even on a clean run. Catalog entry corrected to the
+  upstream digest
+  `ce61fc1b9bb3c60bfe1acd61782f8206b83dcbadfebbdd6dff4b29cdc81cdd48`. Other
+  target hashes were re-verified against upstream and are unchanged. Affected
+  users can recover with `npm i -g code-stick@latest` followed by a normal
+  `code-stick install` — the `.partial.meta` sidecar will auto-discard the
+  bad partial from the previous run.
+
 ## 0.2.2
 
 ### Added

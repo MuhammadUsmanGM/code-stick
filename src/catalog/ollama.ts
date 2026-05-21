@@ -35,7 +35,7 @@ export const OLLAMA: Record<Target, OllamaArtifact> = {
     url: `${BASE_HOST}/ollama-windows-arm64.zip`,
     filename: "ollama-windows-arm64.zip",
     type: "zip",
-    sha256: "f248475a81a7dcd841a32e1f6c06c83310c893c49c4bdf7da8c10f3eef27231a",
+    sha256: "ce61fc1b9bb3c60bfe1acd61782f8206b83dcbadfebbdd6dff4b29cdc81cdd48",
   },
   "darwin-arm64": {
     // CLI binary tarball (Ollama-darwin.zip is the GUI app).
